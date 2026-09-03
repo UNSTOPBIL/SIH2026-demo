@@ -111,6 +111,56 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
+    # Interactive System Architecture & Edge AI Pipeline
+    with st.expander("🏗️ Interactive System Architecture & Edge AI Pipeline (Click to inspect)", expanded=False):
+        s1, s2, s3, s4 = st.columns(4)
+        with s1:
+            st.markdown("""
+            <div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 12px; height: 100%;">
+                <h5 style="color: #1d4ed8; margin: 0 0 6px 0;">1. Ingestion & Preprocessing</h5>
+                <p style="font-size: 0.82rem; color: #1e3a8a; margin: 0;">
+                    • Webcam & File Uploader<br>
+                    • EXIF auto-orientation transpose<br>
+                    • Lanczos rescaling (max 1600px)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        with s2:
+            st.markdown("""
+            <div style="background: #f5f3ff; border: 2px solid #8b5cf6; border-radius: 8px; padding: 12px; height: 100%;">
+                <h5 style="color: #6d28d9; margin: 0 0 6px 0;">2. Vision AI (PP-OCRv4)</h5>
+                <p style="font-size: 0.82rem; color: #4c1d95; margin: 0;">
+                    • <strong>DBNet</strong>: Text polygon detection<br>
+                    • <strong>LCNet</strong>: Angle classification (0-270°)<br>
+                    • <strong>CRNN/SVTR</strong>: Text sequence recognition
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        with s3:
+            st.markdown("""
+            <div style="background: #fefce8; border: 2px solid #eab308; border-radius: 8px; padding: 12px; height: 100%;">
+                <h5 style="color: #a16207; margin: 0 0 6px 0;">3. Statutory Guardrails</h5>
+                <p style="font-size: 0.82rem; color: #713f12; margin: 0;">
+                    • Legal Metrology Rule 6 validation<br>
+                    • SI metric units verification<br>
+                    • Contextual evidence extraction
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        with s4:
+            st.markdown("""
+            <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 8px; padding: 12px; height: 100%;">
+                <h5 style="color: #15803d; margin: 0 0 6px 0;">4. Audit & Decision</h5>
+                <p style="font-size: 0.82rem; color: #14532d; margin: 0;">
+                    • Color-coded PASS/FAIL cards<br>
+                    • Real-time COMPLIANT verdict<br>
+                    • Downloadable JSON Audit Report
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-bottom: 14px;'></div>", unsafe_allow_html=True)
+
     # Sidebar: Instructions & Statutory Guidance
     with st.sidebar:
         st.header("📌 Rule 6 Statutory Checklist")

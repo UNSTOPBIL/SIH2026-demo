@@ -35,36 +35,51 @@ The engine enforces mandatory declarations mapped directly to statutory clauses 
 
 ## 🏗️ Core System Architecture
 
-The application adopts a high-efficiency, offline-capable two-stage architecture:
+The application adopts a high-efficiency, offline-capable computer vision and statutory rule-checking architecture:
 
-```
-[ Packaging Photo / Webcam / Demo Preset ]
-                    │
-                    ▼
-┌────────────────────────────────────────────────────────┐
-│  Stage 1: Computer Vision Perception (PaddleOCR)       │
-│  • EXIF Auto-Orientation & RGB Preprocessing (utils.py)│
-│  • PP-OCRv4 DBNet Text Detection                       │
-│  • PP-LCNet Textline Angle Rectification               │
-│  • PP-OCRv4 Alphanumeric Sequence Recognition          │
-└───────────────────────────┬────────────────────────────┘
-                            │ Filtered text lines (conf ≥ 0.55)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│  Stage 2: Statutory Compliance Engine (rule_engine.py) │
-│  • Deterministic pattern matching with guardrails.json │
-│  • Contextual snippet extraction around matches        │
-│  • Mandatory clause validation & violation scoring     │
-└───────────────────────────┬────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│  Stage 3: Interactive Split-View Dashboard (app.py)    │
-│  • Live camera feed & file dropzone on the left        │
-│  • Instant COMPLIANT / NON-COMPLIANT verdict banner    │
-│  • Color-coded PASS (✅), FAIL (❌), WARN (⚠️) cards     │
-│  • JSON Compliance Audit Certificate download          │
-└────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph INPUT["📥 1. Ingestion & Preprocessing"]
+        A["📸 Packaging Photo / Live Webcam / Sample Preset"] --> B["⚙️ utils.py: EXIF Orientation Transpose & RGB Normalization"]
+        B --> C["📐 Fast CPU Rescaling (max 1600px)"]
+    end
+
+    subgraph VISION["🧠 2. Deep Learning Vision Pipeline (PaddleOCR PP-OCRv4)"]
+        C --> D["🔍 DBNet: Differentiable Binarization Text Detection"]
+        D --> E["🔄 PP-LCNet: Textline Angle Classifier & Rectifier"]
+        E --> F["🔤 CRNN/SVTR: Alphanumeric Sequence Recognition"]
+        F --> G["🎯 Confidence Filter (Score ≥ 0.55)"]
+    end
+
+    subgraph ENGINE["⚖️ 3. Statutory Guardrail Engine (rule_engine.py)"]
+        G --> H["📜 Statutory Guardrails (guardrails.json)"]
+        H --> I1["💰 Rule 6(1)(f): MRP + Taxes Incl."]
+        H --> I2["⚖️ Rule 6(1)(b): Net Qty (g/kg/ml/l/nos)"]
+        H --> I3["🏭 Rule 6(1)(c): Mfg / Packer Details"]
+        H --> I4["📅 Rule 6(1)(e): Mfg & Expiry Dates"]
+        H --> I5["☎️ Rule 6(1)(k): Consumer Grievance Cell"]
+        H --> I6["🛡️ Sectoral: FSSAI / BIS License"]
+    end
+
+    subgraph OUTPUT["🖥️ 4. Interactive Dashboard & Auditing (Streamlit)"]
+        I1 & I2 & I3 & I4 & I5 & I6 --> J{"Overall Verdict"}
+        J -->|All Mandatory Passed| K["🟢 COMPLIANT PACKAGE (Pass Badge)"]
+        J -->|Violations Found| L["🔴 NON-COMPLIANT PACKAGE (Violation Count)"]
+        K & L --> M["📋 Color-Coded PASS / FAIL / WARN Cards + Text Evidence"]
+        M --> N["📥 Downloadable Statutory Audit Report (JSON)"]
+    end
+
+    classDef inputStyle fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1;
+    classDef visionStyle fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#5b21b6;
+    classDef engineStyle fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e;
+    classDef outputStyle fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d;
+    classDef alertStyle fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#991b1b;
+
+    class A,B,C inputStyle;
+    class D,E,F,G visionStyle;
+    class H,I1,I2,I3,I4,I5,I6 engineStyle;
+    class J,K,M,N outputStyle;
+    class L alertStyle;
 ```
 
 ---
