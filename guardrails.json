@@ -9,7 +9,7 @@
       "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
       "patterns": [
         "(?i)(M\\.?R\\.?P\\.?|Maximum\\s+Retail\\s+Price)[^\\n\\r]{0,35}?(₹|Rs\\.?|INR)?\\s*([0-9]+(?:\\.[0-9]{1,2})?)",
-        "(?i)(₹|Rs\\.?|INR)\\s*([0-9]+(?:\\.[0-9]{1,2})?)[^\\n\\r]{0,30}?(incl|inclusive)",
+        "(?i)\\b(Rs\\.?|INR|₹)\\s*\\d+(\\.\\d{1,2})?\\b",
         "(?i)(M\\.?R\\.?P\\.?)[\\s:.-]*([0-9]+(?:\\.[0-9]{1,2})?)"
       ],
       "required": true
@@ -31,9 +31,10 @@
       "rule_ref": "Rule 6(1)(c)",
       "description": "Name and complete address of the manufacturer, packer, or importer.",
       "patterns": [
-        "(?i)(mfd\\.?\\s*by|mfg\\.?\\s*by|manufactured\\s+by|packed\\s+by|marketed\\s+by|pkd\\.?\\s*by|mfr\\.?\\s*by)[\\s:.-]+([A-Za-z0-9\\s,.-]{4,80})",
+        "(?i)\\b(mfg\\.?|manufactured|mfr\\.?|packed|distributed|marketed|imported)\\s*(by|&|and)?\\s*[:\\s]",
+        "(?i)(mfd\\.?\\s*by|mfg\\.?\\s*by|manufactured\\s+by|packed\\s+by|marketed\\s+by|distributed\\s+by|imported\\s+by|pkd\\.?\\s*by|mfr\\.?\\s*by)[\\s:.-]+([A-Za-z0-9\\s,.-]{4,80})",
         "(?i)(manufactured\\s+and\\s+packed\\s+by)[\\s:.-]+([A-Za-z0-9\\s,.-]{4,80})",
-        "(?i)(mfg|manufactured|packed)[\\s]+by\\b"
+        "(?i)(mfg|manufactured|packed|distributed|marketed|imported)[\\s]+by\\b"
       ],
       "required": true
     },

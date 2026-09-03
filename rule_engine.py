@@ -31,7 +31,7 @@ def load_guardrails(config_path: Optional[str] = None) -> Dict[str, Any]:
                 "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
                 "patterns": [
                     r"(?i)(M\.?R\.?P\.?|Maximum\s+Retail\s+Price)[^\n\r]{0,35}?(₹|Rs\.?|INR)?\s*([0-9]+(?:\.[0-9]{1,2})?)",
-                    r"(?i)(₹|Rs\.?|INR)\s*([0-9]+(?:\.[0-9]{1,2})?)[^\n\r]{0,30}?(incl|inclusive)",
+                    r"(?i)\b(Rs\.?|INR|₹)\s*\d+(\.\d{1,2})?\b",
                     r"(?i)(M\.?R\.?P\.?)[\s:.-]*([0-9]+(?:\.[0-9]{1,2})?)"
                 ],
                 "required": True,
@@ -53,9 +53,10 @@ def load_guardrails(config_path: Optional[str] = None) -> Dict[str, Any]:
                 "rule_ref": "Rule 6(1)(c)",
                 "description": "Name and complete address of manufacturer or packer.",
                 "patterns": [
-                    r"(?i)(mfd\.?\s*by|mfg\.?\s*by|manufactured\s+by|packed\s+by|marketed\s+by|pkd\.?\s*by|mfr\.?\s*by)[\s:.-]+([A-Za-z0-9\s,.-]{4,80})",
+                    r"(?i)\b(mfg\.?|manufactured|mfr\.?|packed|distributed|marketed|imported)\s*(by|&|and)?\s*[:\s]",
+                    r"(?i)(mfd\.?\s*by|mfg\.?\s*by|manufactured\s+by|packed\s+by|marketed\s+by|distributed\s+by|imported\s+by|pkd\.?\s*by|mfr\.?\s*by)[\s:.-]+([A-Za-z0-9\s,.-]{4,80})",
                     r"(?i)(manufactured\s+and\s+packed\s+by)[\s:.-]+([A-Za-z0-9\s,.-]{4,80})",
-                    r"(?i)(mfg|manufactured|packed)[\s]+by\b"
+                    r"(?i)(mfg|manufactured|packed|distributed|marketed|imported)[\s]+by\b"
                 ],
                 "required": True,
             },

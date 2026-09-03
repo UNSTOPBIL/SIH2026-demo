@@ -1,4 +1,4 @@
-﻿# PROJECT_SPEC.md — SIH Legal Metrology Compliance Scanner
+# PROJECT_SPEC.md — SIH Legal Metrology Compliance Scanner
 
 > **Hackathon**: Smart India Hackathon (SIH)
 > **Domain**: Legal Metrology (Packaged Commodities) Rules, 2011
@@ -156,7 +156,7 @@ def extract_text(image_path: str) -> list[str]:
       "rule_ref": "Rule 6(1)(f)",
       "patterns": [
         "(?i)(M\\.?R\\.?P\\.?|Maximum Retail Price)[\\s:Rs.]*\\d+",
-        "(?i)(Rs\\.?|INR)\\s*\\d+(\\.\\d{1,2})?"
+        "(?i)\\b(Rs\\.?|INR|₹)\\s*\\d+(\\.\\d{1,2})?\\b"
       ],
       "required": true
     },
@@ -175,8 +175,8 @@ def extract_text(image_path: str) -> list[str]:
       "label": "Manufacturer / Packer",
       "rule_ref": "Rule 6(1)(c)",
       "patterns": [
-        "(?i)(mfg\\.?|manufactured|mfr\\.?|packed)\\s*(by|&|and)?\\s*:",
-        "(?i)(mfg|manufactured|packed)\\s+by"
+        "(?i)\\b(mfg\\.?|manufactured|mfr\\.?|packed|distributed|marketed|imported)\\s*(by|&|and)?\\s*[:\\s]",
+        "(?i)(mfg|manufactured|packed|distributed|marketed|imported)\\s+by"
       ],
       "required": true
     },

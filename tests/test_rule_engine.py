@@ -77,6 +77,34 @@ class TestRuleEngine(unittest.TestCase):
             qty_card = next(c for c in result["cards"] if c["id"] == "net_quantity")
             self.assertEqual(qty_card["status"], "PASS", f"Failed for unit: {unit_str}")
 
+    def test_mrp_false_positive_words_ending_in_rs(self):
+        """Words ending in 'rs' (e.g. 'Total Sugars 19') must not match as MRP / Rs."""
+        lines = ["Nutrition Information", "Total Sugars 19 29", "Calories 250"]
+        result = evaluate_compliance(lines)
+        mrp_card = next(c for c in result["cards"] if c["id"] == "mrp")
+        self.assertEqual(mrp_card["status"], "FAIL")
+        self.assertFalse(mrp_card["passed"])
+
+    def test_manufacturer_distributed_marketed_imported(self):
+        """Labels using 'Distributed by', 'Marketed by', or 'Imported by' must pass Rule 6(1)(c)."""
+        for entity_line in [
+            "Distributed by: Seeds of Change, Chicago",
+            "Marketed by: Global Brands India Pvt Ltd, Mumbai",
+            "Imported by: Apex Imports, New Delhi - 110001"
+        ]:
+            result = evaluate_compliance([entity_line])
+            mfr_card = next(c for c in result["cards"] if c["id"] == "manufacturer")
+            self.assertEqual(mfr_card["status"], "PASS", f"Failed for entity line: {entity_line}")
+            self.assertTrue(mfr_card["passed"])
+
+    def test_user_reported_edge_case(self):
+        """Verify the exact sample combination requested: Sugars fails MRP, Distributed by passes Manufacturer."""
+        lines = ["Total Sugars 19 29", "Distributed by: Seeds of Change, Chicago"]
+        result = evaluate_compliance(lines)
+        cards = {c["id"]: c for c in result["cards"]}
+        self.assertEqual(cards["mrp"]["status"], "FAIL")
+        self.assertEqual(cards["manufacturer"]["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()
