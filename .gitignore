@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Operating System & IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local model caches & temporary directories
+.cache/
+.temp/
+temp_*
+*.log
+
+# Deep learning checkpoint & weights files
+*.pdparams
+*.pdmodel
+*.pdopt
+*.onnx

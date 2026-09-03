@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "domain": "Legal Metrology (Packaged Commodities) Rules, 2011",
+  "rules": [
+    {
+      "id": "mrp",
+      "label": "MRP (incl. of all taxes)",
+      "rule_ref": "Rule 6(1)(f)",
+      "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
+      "patterns": [
+        "(?i)(M\\.?R\\.?P\\.?|Maximum\\s+Retail\\s+Price)[^\\n\\r]{0,35}?(₹|Rs\\.?|INR)?\\s*([0-9]+(?:\\.[0-9]{1,2})?)",
+        "(?i)(₹|Rs\\.?|INR)\\s*([0-9]+(?:\\.[0-9]{1,2})?)[^\\n\\r]{0,30}?(incl|inclusive)",
+        "(?i)(M\\.?R\\.?P\\.?)[\\s:.-]*([0-9]+(?:\\.[0-9]{1,2})?)"
+      ],
+      "required": true
+    },
+    {
+      "id": "net_quantity",
+      "label": "Net Quantity (Standard Units)",
+      "rule_ref": "Rule 6(1)(b)",
+      "description": "Net quantity in standard units of weight, measure or number.",
+      "patterns": [
+        "(?i)(net\\s*(?:qty|quantity|wt|weight|vol|volume|content))[\\s.:-]*([0-9]+(?:\\.[0-9]+)?)\\s*(kg|g|gm|gms|grams|kilograms|ml|millilitre|l|ltr|litre|litres|nos|n|units|pieces|pcs)\\b",
+        "(?i)\\b([0-9]+(?:\\.[0-9]+)?)\\s*(kg|g|gm|gms|ml|ltr|litre|litres)\\b"
+      ],
+      "required": true
+    },
+    {
+      "id": "manufacturer",
+      "label": "Manufacturer / Packer Details",
+      "rule_ref": "Rule 6(1)(c)",
+      "description": "Name and complete address of the manufacturer, packer, or importer.",
+      "patterns": [
+        "(?i)(mfd\\.?\\s*by|mfg\\.?\\s*by|manufactured\\s+by|packed\\s+by|marketed\\s+by|pkd\\.?\\s*by|mfr\\.?\\s*by)[\\s:.-]+([A-Za-z0-9\\s,.-]{4,80})",
+        "(?i)(manufactured\\s+and\\s+packed\\s+by)[\\s:.-]+([A-Za-z0-9\\s,.-]{4,80})",
+        "(?i)(mfg|manufactured|packed)[\\s]+by\\b"
+      ],
+      "required": true
+    },
+    {
+      "id": "mfg_date",
+      "label": "Mfg / Packing Date",
+      "rule_ref": "Rule 6(1)(e)",
+      "description": "Month and year of manufacture or packing.",
+      "patterns": [
+        "(?i)(mfg\\.?\\s*date|mfd\\.?|pkd\\.?|packed\\s+on|date\\s+of\\s+mfg|manufactured\\s+on)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
+        "(?i)(mfg|mfd|pkd)[\\s:.-]*([0-9]{1,2}[/\\-.][0-9]{2,4})"
+      ],
+      "required": true
+    },
+    {
+      "id": "expiry_date",
+      "label": "Best Before / Expiry Date",
+      "rule_ref": "Rule 6(1)(e)",
+      "description": "Best before date or expiry date declaration.",
+      "patterns": [
+        "(?i)(best\\s+before|use\\s+by|exp\\.?\\s*date|expiry\\s*date|exp\\.?)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[0-9]{1,2}\\s*months|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
+        "(?i)(best\\s+before)[\\s:.-]*([0-9]+\\s*(?:months|days|years|year))"
+      ],
+      "required": true
+    },
+    {
+      "id": "consumer_care",
+      "label": "Consumer Care / Grievance Cell",
+      "rule_ref": "Rule 6(1)(k)",
+      "description": "Name, address, phone number or email for consumer complaints.",
+      "patterns": [
+        "(?i)(consumer\\s*(?:care|cell|helpline|service)|customer\\s*(?:care|support|service)|toll\\s*free|help\\s*line|grievance)[^\\n\\r]{0,60}?(?:tel|phone|contact|no|call)?[\\s:.-]*([0-9]{3,5}[\\s-]?[0-9]{5,8}|1800[\\s-]?[0-9]{3}[\\s-]?[0-9]{3,4}|[0-9]{10})",
+        "(?i)(?:email|e-mail|write\\s+to)[\\s:.-]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})",
+        "(?i)(consumer|customer)\\s*(care|cell|grievance)"
+      ],
+      "required": true
+    },
+    {
+      "id": "fssai_license",
+      "label": "FSSAI / BIS License No.",
+      "rule_ref": "Rule 6 (Sector Specific)",
+      "description": "Food safety or BIS standardization license number.",
+      "patterns": [
+        "(?i)(fssai|lic\\.?\\s*no\\.?|license\\s+no\\.?)[\\s.:-]*([0-9]{14}|[0-9A-Z-]{8,20})",
+        "(?i)\\b(1[0-9]{13})\\b",
+        "(?i)(isi|bis)[\\s:.-]*(cml[\\s/-]?[0-9]{6,10}|is\\s*:[\\s0-9]+)"
+      ],
+      "required": false
+    }
+  ]
+}
