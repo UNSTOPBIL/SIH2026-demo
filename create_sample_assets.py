@@ -85,7 +85,6 @@ def create_non_compliant_label(output_path: str):
     title_font = get_font(32)
     sub_font = get_font(20)
     body_font = get_font(22)
-    small_font = get_font(18)
 
     draw.text((45, 40), "CRUNCHY CORN PUFFS", fill=(255, 255, 255), font=title_font)
 
@@ -111,10 +110,6 @@ def create_non_compliant_label(output_path: str):
     # Rule 6(1)(c) - Manufacturer (Present)
     draw.rectangle([(40, y), (width - 40, y + 45)], fill=(245, 245, 245), outline=(200, 200, 200), width=1)
     draw.text((50, y + 10), "Packed by: FastSnacks Foods Ltd, Delhi, India", fill=(10, 10, 10), font=body_font)
-    y += 65
-
-    # VIOLATION: Missing Consumer Grievance Contact completely
-    # VIOLATION: Missing FSSAI
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     img.save(output_path, quality=95)

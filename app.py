@@ -1,375 +1,255 @@
 """
-app.py — Streamlit Frontend for SIH Legal Metrology Compliance Scanner MVP.
+app.py — LexMetric Legal Metrology Compliance Inspection Platform
+SIH26034 — Packaged Commodities Compliance Scanner Frontend
 """
 
 from __future__ import annotations
 
+import base64
 import datetime
+import io
 import json
 import os
+from typing import Any, Dict, List, Optional
 from PIL import Image
 import streamlit as st
 
-from utils import load_and_preprocess_image, cleanup_temp_file
+from utils import load_and_preprocess_image, draw_ocr_bounding_boxes, cleanup_temp_file
 from ocr import extract_ocr_data
 from rule_engine import evaluate_compliance
 
 
 # Page Configuration
 st.set_page_config(
-    page_title="Legal Metrology Compliance Scanner | SIH",
+    page_title="LexMetric — Legal Metrology Compliance Intelligence",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for high-contrast, polished judge-ready UI
-st.markdown("""
-<style>
-    /* Metric Cards */
-    .compliance-card {
-        padding: 14px 18px;
-        border-radius: 8px;
-        margin-bottom: 12px;
-        border-left: 6px solid;
-        transition: transform 0.1s ease-in-out;
-    }
-    .card-pass {
-        background-color: #f0fdf4;
-        border-color: #16a34a;
-        color: #14532d;
-    }
-    .card-fail {
-        background-color: #fef2f2;
-        border-color: #dc2626;
-        color: #7f1d1d;
-    }
-    .card-warn {
-        background-color: #fffbeb;
-        border-color: #d97706;
-        color: #78350f;
-    }
-    .card-title {
-        font-size: 1.05rem;
-        font-weight: 700;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 4px;
-    }
-    .card-ref {
-        font-size: 0.8rem;
-        font-weight: 600;
-        background: rgba(0,0,0,0.06);
-        padding: 2px 8px;
-        border-radius: 4px;
-    }
-    .card-snippet {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 0.88rem;
-        background: rgba(255,255,255,0.75);
-        padding: 6px 10px;
-        border-radius: 4px;
-        margin-top: 6px;
-        word-break: break-all;
-    }
-    .banner-pass {
-        background: linear-gradient(135deg, #15803d, #16a34a);
-        color: white;
-        padding: 16px 20px;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 16px;
-    }
-    .banner-fail {
-        background: linear-gradient(135deg, #b91c1c, #dc2626);
-        color: white;
-        padding: 16px 20px;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 16px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Light B2B SaaS Styling Injection
+st.markdown("""<script src="https://cdn.tailwindcss.com"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header[data-testid="stHeader"] {visibility: hidden; height: 0px;} .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; max-width: 100% !important;} body, .stApp {font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #0f172a;} .saas-card {background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);} .saas-badge-pass {background-color: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0;} .saas-badge-review {background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a;} .saas-badge-fail {background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;} .saas-badge-na {background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;} ::-webkit-scrollbar {width: 6px; height: 6px;} ::-webkit-scrollbar-track {background: #f8fafc;} ::-webkit-scrollbar-thumb {background: #cbd5e1; border-radius: 9999px;}</style>""", unsafe_allow_html=True)
+
+
+def make_json_serializable(obj: Any) -> Any:
+    """Helper to convert numpy arrays and non-serializable objects to native Python types."""
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif hasattr(obj, "tolist"):
+        return obj.tolist()
+    elif hasattr(obj, "item"):
+        return obj.item()
+    return obj
 
 
 def main():
-    # Header Banner
-    st.markdown("""
-    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 18px;">
-        <div>
-            <h1 style="margin: 0; font-size: 1.85rem; color: #1e293b;">⚖️ Legal Metrology Compliance Scanner</h1>
-            <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.95rem;">
-                Automated Verification of <strong>Rule 6 Mandatory Packaging Declarations</strong> | <em>Packaged Commodities Rules, 2011</em>
-            </p>
-        </div>
-        <div style="text-align: right;">
-            <span style="background: #2563eb; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.82rem;">
-                SIH MVP DEMO
-            </span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # 1. Top Shell Header & Brand Navigation
+    st.markdown("""<header class="bg-white border-b border-slate-200 px-6 py-3.5 rounded-xl mb-6 flex items-center justify-between shadow-xs"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-white font-bold"><i class="fa-solid fa-scale-balanced text-sm"></i></div><div><h1 class="font-bold text-slate-900 text-base leading-none tracking-tight">LexMetric</h1><p class="text-[11px] font-medium text-slate-500 mt-0.5">Legal Metrology Compliance Intelligence</p></div></div><div class="flex items-center gap-6 text-xs font-semibold text-slate-600"><span class="text-indigo-600 border-b-2 border-indigo-600 pb-1 cursor-pointer">Inspections</span><span class="hover:text-slate-900 cursor-pointer">Products</span><span class="hover:text-slate-900 cursor-pointer">Reports</span><span class="hover:text-slate-900 cursor-pointer">Rules</span><div class="h-4 w-px bg-slate-200"></div><div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="text-[11px] text-slate-500 font-medium">Inspection system online</span></div></div></header>""", unsafe_allow_html=True)
 
-    # Interactive System Architecture & Edge AI Pipeline
-    with st.expander("🏗️ Interactive System Architecture & Edge AI Pipeline (Click to inspect)", expanded=False):
-        s1, s2, s3, s4 = st.columns(4)
-        with s1:
-            st.markdown("""
-            <div style="background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 12px; height: 100%;">
-                <h5 style="color: #1d4ed8; margin: 0 0 6px 0;">1. Ingestion & Preprocessing</h5>
-                <p style="font-size: 0.82rem; color: #1e3a8a; margin: 0;">
-                    • Webcam & File Uploader<br>
-                    • EXIF auto-orientation transpose<br>
-                    • Lanczos rescaling (max 1600px)
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        with s2:
-            st.markdown("""
-            <div style="background: #f5f3ff; border: 2px solid #8b5cf6; border-radius: 8px; padding: 12px; height: 100%;">
-                <h5 style="color: #6d28d9; margin: 0 0 6px 0;">2. Vision AI (PP-OCRv4)</h5>
-                <p style="font-size: 0.82rem; color: #4c1d95; margin: 0;">
-                    • <strong>DBNet</strong>: Text polygon detection<br>
-                    • <strong>LCNet</strong>: Angle classification (0-270°)<br>
-                    • <strong>CRNN/SVTR</strong>: Text sequence recognition
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        with s3:
-            st.markdown("""
-            <div style="background: #fefce8; border: 2px solid #eab308; border-radius: 8px; padding: 12px; height: 100%;">
-                <h5 style="color: #a16207; margin: 0 0 6px 0;">3. Statutory Guardrails</h5>
-                <p style="font-size: 0.82rem; color: #713f12; margin: 0;">
-                    • Legal Metrology Rule 6 validation<br>
-                    • SI metric units verification<br>
-                    • Contextual evidence extraction
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        with s4:
-            st.markdown("""
-            <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 8px; padding: 12px; height: 100%;">
-                <h5 style="color: #15803d; margin: 0 0 6px 0;">4. Audit & Decision</h5>
-                <p style="font-size: 0.82rem; color: #14532d; margin: 0;">
-                    • Color-coded PASS/FAIL cards<br>
-                    • Real-time COMPLIANT verdict<br>
-                    • Downloadable JSON Audit Report
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("<div style='margin-bottom: 14px;'></div>", unsafe_allow_html=True)
-
-    # Sidebar: Instructions & Statutory Guidance
+    # 2. Sidebar Inputs & Context Controls
     with st.sidebar:
-        st.header("📌 Rule 6 Statutory Checklist")
-        st.markdown("""
-        Every pre-packaged commodity in India must declare:
-        - **Rule 6(1)(f)**: MRP inclusive of all taxes (`₹` / `Rs.`)
-        - **Rule 6(1)(b)**: Net Quantity in standard units (`g`, `kg`, `ml`, `l`, `nos`)
-        - **Rule 6(1)(c)**: Name & address of Manufacturer / Packer
-        - **Rule 6(1)(e)**: Month & Year of Manufacture / Packing
-        - **Rule 6(1)(e)**: Best Before / Expiry declaration
-        - **Rule 6(1)(k)**: Consumer Grievance contact (Phone/Email)
-        - **Sectoral**: FSSAI / BIS License (Food/Industrial)
-        """)
+        st.markdown("### 📌 Inspection Setup")
 
-        st.divider()
-        st.subheader("⚙️ OCR Settings")
-        conf_threshold = st.slider(
-            "Confidence Filter",
-            min_value=0.30,
-            max_value=0.90,
-            value=0.55,
-            step=0.05,
-            help="Filter noisy background text below this confidence threshold."
+        input_choice = st.radio(
+            "Select Input Method / Preset:",
+            [
+                "🟢 100% Compliant Sample Label",
+                "🔴 Non-Compliant Sample Label",
+                "📁 Upload Custom Package Image",
+                "📸 Live Camera Capture"
+            ],
+            index=0
         )
 
-        st.caption("Engine: PaddleOCR (use_angle_cls=True, lang='en')")
+        st.markdown("---")
+        st.markdown("### ⚙️ Product Context")
+        
+        category = st.selectbox(
+            "Product Category",
+            [
+                "Food / Beverage",
+                "Cosmetic / Personal Care",
+                "Household / Consumer Goods",
+                "Industrial Product",
+                "Other"
+            ],
+            index=0
+        )
 
-    # Main Split-View Layout
-    left_col, right_col = st.columns([1, 1.15], gap="large")
+        is_imported = st.checkbox("Imported Commodity (Rule 6(1)(c))", value=False)
 
-    image_to_process = None
-    source_name = ""
+        st.markdown("---")
+        st.caption("Engine: PaddleOCR (PP-OCRv4, use_angle_cls=True)")
 
-    with left_col:
-        st.subheader("📷 Label Input")
-        input_tab1, input_tab2, input_tab3 = st.tabs(["📁 Upload Image", "📸 Live Camera", "🧪 Demo Presets"])
+    # Resolve image source
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    preset_map = {
+        "🟢 100% Compliant Sample Label": os.path.join(base_dir, "assets", "sample_labels", "compliant_sample.png"),
+        "🔴 Non-Compliant Sample Label": os.path.join(base_dir, "assets", "sample_labels", "non_compliant_sample.png")
+    }
 
-        with input_tab1:
-            uploaded_file = st.file_uploader(
-                "Upload packaging label photo",
-                type=["jpg", "jpeg", "png", "webp"],
-                help="Accepts high-resolution images of pre-packaged goods."
-            )
-            if uploaded_file is not None:
-                image_to_process = uploaded_file
-                source_name = uploaded_file.name
+    image_source = None
+    source_filename = "sample_label.png"
 
-        with input_tab2:
-            camera_file = st.camera_input("Capture packaging label via webcam")
-            if camera_file is not None:
-                image_to_process = camera_file
-                source_name = "webcam_capture.jpg"
+    if input_choice in preset_map:
+        target_path = preset_map[input_choice]
+        if os.path.exists(target_path):
+            image_source = target_path
+            source_filename = os.path.basename(target_path)
+    elif input_choice == "📁 Upload Custom Package Image":
+        uploaded = st.file_uploader("Upload packaging artwork / photo", type=["jpg", "jpeg", "png", "webp"])
+        if uploaded:
+            image_source = uploaded
+            source_filename = uploaded.name
+    elif input_choice == "📸 Live Camera Capture":
+        captured = st.camera_input("Capture packaging photo")
+        if captured:
+            image_source = captured
+            source_filename = "webcam_capture.jpg"
 
-        with input_tab3:
-            st.info("Select a pre-configured sample to test the scanner instantly:")
-            preset_choice = st.radio(
-                "Select Test Preset:",
-                ["None", "🟢 100% Compliant Sample", "🔴 Non-Compliant Sample (Fails MRP & Grievance)"],
-                index=0
-            )
-            preset_paths = {
-                "🟢 100% Compliant Sample": os.path.join("assets", "sample_labels", "compliant_sample.png"),
-                "🔴 Non-Compliant Sample (Fails MRP & Grievance)": os.path.join("assets", "sample_labels", "non_compliant_sample.png")
+    # Landing Page State if no image loaded
+    if not image_source:
+        st.markdown("""<div class="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm max-w-3xl mx-auto my-8 text-center"><div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4 text-xl"><i class="fa-solid fa-cloud-arrow-up"></i></div><h2 class="text-xl font-bold text-slate-900">New Compliance Inspection</h2><p class="text-sm text-slate-500 mt-1 max-w-lg mx-auto leading-relaxed">Analyze packaged commodity artwork or product imagery against Legal Metrology Rule 6 requirements.</p><div class="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 text-left text-xs text-slate-600 space-y-2"><p class="font-semibold text-slate-800">📌 How to begin:</p><p>1. Choose a preset sample or upload a package photo in the sidebar menu.</p><p>2. Select the product category (Cosmetic, Food, Consumer Goods).</p><p>3. The automated scanner will extract declarations, verify statutory rules, and generate an evidence-backed report.</p></div></div>""", unsafe_allow_html=True)
+        return
+
+    # 3. Real OCR Pipeline Execution
+    with st.spinner("Executing OCR & Statutory Guardrail Analysis..."):
+        try:
+            pil_img, temp_img_path = load_and_preprocess_image(image_source)
+            ocr_lines, ocr_details = extract_ocr_data(temp_img_path, confidence_threshold=0.55)
+            eval_context = {
+                "product_category": category,
+                "imported": is_imported
             }
+            results = evaluate_compliance(ocr_details if ocr_details else ocr_lines, context=eval_context)
+        except Exception as e:
+            st.error(f"Error processing inspection: {e}")
+            if 'temp_img_path' in locals() and temp_img_path:
+                cleanup_temp_file(temp_img_path)
+            return
 
-            if preset_choice != "None" and image_to_process is None:
-                target_path = preset_paths[preset_choice]
-                if os.path.exists(target_path):
-                    image_to_process = target_path
-                    source_name = os.path.basename(target_path)
-                else:
-                    st.warning(f"Preset file not found at `{target_path}`. Run `create_sample_assets.py` first.")
+    # 4. Inspection Results View Header
+    verdict_state = results.get("verdict_state", "REVIEW_REQUIRED")
+    summary = results.get("summary", {})
+    findings = results.get("findings", [])
 
-        # Preview Container
-        if image_to_process:
-            st.markdown("---")
-            st.caption(f"**Loaded Source**: `{source_name}`")
-            try:
-                processed_pil, temp_img_path = load_and_preprocess_image(image_to_process)
-                st.image(processed_pil, caption="Packaging Label under Inspection", use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading image: {e}")
-                temp_img_path = None
-        else:
-            temp_img_path = None
-            st.markdown("---")
-            st.markdown("""
-            <div style="text-align: center; padding: 40px 20px; border: 2px dashed #cbd5e1; border-radius: 8px; color: #94a3b8;">
-                <p style="font-size: 2.2rem; margin-bottom: 8px;">📦</p>
-                <p style="font-weight: 600;">No package image loaded</p>
-                <p style="font-size: 0.85rem;">Upload a photo, take a picture, or pick a demo preset above to begin scanning.</p>
-            </div>
-            """, unsafe_allow_html=True)
+    if verdict_state == "COMPLIANT":
+        banner_class = "bg-emerald-50 border-emerald-200 text-emerald-900"
+        verdict_icon = "fa-circle-check text-emerald-600"
+        verdict_title = "Package Appears Compliant"
+        verdict_subtitle = "All evaluated applicable Legal Metrology requirements passed statutory validation."
+        badge_pill = "bg-emerald-100 text-emerald-800"
+        badge_text = "PASS"
+    elif verdict_state == "POTENTIAL_VIOLATION":
+        banner_class = "bg-rose-50 border-rose-200 text-rose-900"
+        verdict_icon = "fa-circle-xmark text-rose-600"
+        verdict_title = "Potential Non-Compliance Detected"
+        verdict_subtitle = "One or more mandatory statutory requirements failed validation."
+        badge_pill = "bg-rose-100 text-rose-800"
+        badge_text = "NON-COMPLIANT"
+    else:
+        banner_class = "bg-amber-50 border-amber-200 text-amber-900"
+        verdict_icon = "fa-triangle-exclamation text-amber-600"
+        verdict_title = "Review Required"
+        verdict_subtitle = "Some declarations require additional inspector verification due to OCR or semantic ambiguity."
+        badge_pill = "bg-amber-100 text-amber-800"
+        badge_text = "REVIEW REQUIRED"
 
-    with right_col:
-        st.subheader("📋 Compliance Evaluation")
+    st.markdown(f"""<div class="rounded-xl border p-4 mb-5 flex items-center justify-between {banner_class}"><div class="flex items-center gap-3.5"><div class="text-2xl"><i class="fa-solid {verdict_icon}"></i></div><div><div class="flex items-center gap-2"><h2 class="text-base font-bold">{verdict_title}</h2><span class="text-[10px] font-bold px-2 py-0.5 rounded-full {badge_pill}">{badge_text}</span></div><p class="text-xs opacity-90 mt-0.5">{verdict_subtitle}</p></div></div><div class="text-right"><span class="text-xs font-mono font-semibold text-slate-700">INS-00241</span></div></div>""", unsafe_allow_html=True)
 
-        if temp_img_path:
-            with st.status("Analyzing packaging declarations...", expanded=False) as status:
-                st.write("🔍 Running PaddleOCR with orientation and angle classification...")
-                try:
-                    ocr_lines, ocr_details = extract_ocr_data(temp_img_path, confidence_threshold=conf_threshold)
-                    st.write(f"✓ Detected {len(ocr_lines)} text lines with confidence ≥ {conf_threshold:.2f}")
+    # 5. Inspection Metadata Bar
+    now_str = datetime.datetime.now().strftime("%d %b %Y · %H:%M")
+    st.markdown(f"""<div class="bg-white border border-slate-200 rounded-lg px-4 py-2 mb-5 flex items-center justify-between text-xs text-slate-500 font-mono"><div><strong class="text-slate-800">Inspection ID:</strong> INS-00241 &nbsp;•&nbsp; <strong class="text-slate-800">Date:</strong> {now_str} &nbsp;•&nbsp; <strong class="text-slate-800">Category:</strong> {category}</div><div><strong class="text-slate-800">OCR Engine:</strong> PaddleOCR (PP-OCRv4) &nbsp;•&nbsp; <strong class="text-slate-800">Ruleset:</strong> Legal Metrology v0.1</div></div>""", unsafe_allow_html=True)
 
-                    st.write("⚖️ Matching against Legal Metrology Rule 6 Guardrails...")
-                    results = evaluate_compliance(ocr_lines)
-                    status.update(label="Analysis Completed!", state="complete", expanded=False)
-                except Exception as ex:
-                    status.update(label=f"Analysis Failed: {ex}", state="error")
-                    st.error(f"Failed to process image: {ex}")
-                    results = None
-                finally:
-                    cleanup_temp_file(temp_img_path)
+    # 6. Categorical Metrics Breakdown (No percentage score display)
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.markdown(f"""<div class="bg-white border border-slate-200 rounded-xl p-3 text-center"><p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Declarations Detected</p><p class="text-xl font-extrabold text-slate-800 mt-1">{summary.get('declarations_detected', 0)}</p></div>""", unsafe_allow_html=True)
+    with m2:
+        st.markdown(f"""<div class="bg-white border border-slate-200 rounded-xl p-3 text-center"><p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Passed Checks</p><p class="text-xl font-extrabold text-emerald-600 mt-1">{summary.get('passed_count', 0)}</p></div>""", unsafe_allow_html=True)
+    with m3:
+        st.markdown(f"""<div class="bg-white border border-slate-200 rounded-xl p-3 text-center"><p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Review Required</p><p class="text-xl font-extrabold text-amber-600 mt-1">{summary.get('review_count', 0)}</p></div>""", unsafe_allow_html=True)
+    with m4:
+        st.markdown(f"""<div class="bg-white border border-slate-200 rounded-xl p-3 text-center"><p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Potential Violations</p><p class="text-xl font-extrabold text-rose-600 mt-1">{summary.get('violation_count', 0)}</p></div>""", unsafe_allow_html=True)
 
-            if results:
-                # 1. Overall Verdict Banner
-                summary = results["summary"]
-                if results["is_compliant"]:
-                    st.markdown(f"""
-                    <div class="banner-pass">
-                        <h2 style="margin: 0; font-size: 1.6rem; color: white;">✅ COMPLIANT PACKAGE</h2>
-                        <p style="margin: 4px 0 0 0; font-size: 0.95rem; opacity: 0.95;">
-                            All {summary['required_passed']}/{summary['required_total']} mandatory Rule 6 declarations successfully verified.
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div class="banner-fail">
-                        <h2 style="margin: 0; font-size: 1.6rem; color: white;">❌ NON-COMPLIANT PACKAGE</h2>
-                        <p style="margin: 4px 0 0 0; font-size: 0.95rem; opacity: 0.95;">
-                            {summary['required_failed']} mandatory declaration(s) missing or violated under Rule 6!
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+    st.markdown("<div class='mb-5'></div>", unsafe_allow_html=True)
 
-                # 2. Metric Row
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Compliance Score", f"{results['score_percentage']}%")
-                m2.metric("Mandatory Passed", f"{summary['required_passed']}/{summary['required_total']}")
-                m3.metric("Violations", f"{summary['required_failed']}")
-                m4.metric("OCR Lines", f"{results['ocr_line_count']}")
+    # 7. Main Split View: Left Bounding Box Highlighted Image Canvas + Right Finding Cards
+    col_img, col_findings = st.columns([1.1, 1.4], gap="large")
 
-                st.markdown("<br>", unsafe_allow_html=True)
+    with col_img:
+        st.markdown("#### 📷 Package Artwork Under Inspection")
+        
+        # Draw actual bounding polygon highlights using PaddleOCR coordinates
+        annotated_img = draw_ocr_bounding_boxes(pil_img, findings)
+        st.image(annotated_img, use_container_width=True)
 
-                # 3. Rule Compliance Checklist Cards
-                for card in results["cards"]:
-                    status_class = "card-pass" if card["status"] == "PASS" else ("card-fail" if card["status"] == "FAIL" else "card-warn")
-                    icon = "✅ PASS" if card["status"] == "PASS" else ("❌ FAIL" if card["status"] == "FAIL" else "⚠️ OPTIONAL / WARN")
-                    badge_style = "color: #16a34a;" if card["status"] == "PASS" else ("color: #dc2626;" if card["status"] == "FAIL" else "color: #d97706;")
+        st.caption("ℹ️ Visual outlines display actual OCR bounding box coordinates mapped to extracted declarations.")
 
-                    st.markdown(f"""
-                    <div class="compliance-card {status_class}">
-                        <div class="card-title">
-                            <span>{card['label']}</span>
-                            <span class="card-ref">{card['rule_ref']}</span>
-                        </div>
-                        <div style="font-size: 0.85rem; margin-bottom: 4px;">
-                            <strong>Status:</strong> <span style="{badge_style} font-weight: 700;">{icon}</span>
-                            {" · <em style='color: #dc2626;'>(Mandatory)</em>" if card['required'] else " · <em>(Optional)</em>"}
-                        </div>
-                        <div class="card-snippet">
-                            "{card['snippet']}"
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+    with col_findings:
+        st.markdown("#### 📋 Statutory Compliance Findings")
 
-                # 4. JSON Audit Report Download
-                st.markdown("---")
-                audit_report = {
-                    "timestamp": datetime.datetime.now().isoformat(),
-                    "source": source_name,
-                    "overall_verdict": "COMPLIANT" if results["is_compliant"] else "NON-COMPLIANT",
-                    "compliance_score": results["score_percentage"],
-                    "summary": summary,
-                    "detailed_rules": results["cards"],
-                    "raw_ocr_lines": ocr_lines
-                }
+        for finding in findings:
+            status = finding.get("status", "NOT_DETECTED")
+            
+            if status == "PASS":
+                status_badge = '<span class="px-2.5 py-1 rounded-md text-xs font-bold saas-badge-pass">✓ VERIFIED PASS</span>'
+            elif status == "FAIL":
+                status_badge = '<span class="px-2.5 py-1 rounded-md text-xs font-bold saas-badge-fail">✕ POTENTIAL VIOLATION</span>'
+            elif status == "REVIEW_REQUIRED":
+                status_badge = '<span class="px-2.5 py-1 rounded-md text-xs font-bold saas-badge-review">⚠ REVIEW REQUIRED</span>'
+            elif status == "NOT_APPLICABLE":
+                status_badge = '<span class="px-2.5 py-1 rounded-md text-xs font-bold saas-badge-na">NOT APPLICABLE</span>'
+            else:
+                status_badge = '<span class="px-2.5 py-1 rounded-md text-xs font-bold saas-badge-na">NOT DETECTED</span>'
 
-                report_json = json.dumps(audit_report, indent=2)
-                st.download_button(
-                    label="📥 Download Compliance Audit Report (JSON)",
-                    data=report_json,
-                    file_name=f"legal_metrology_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
+            evidence_data = finding.get("evidence")
+            evidence_snippet = evidence_data.get("snippet", "") if evidence_data else ""
+            line_ids = evidence_data.get("line_ids", []) if evidence_data else []
+            bbox = evidence_data.get("bbox", []) if evidence_data else []
 
-                # 5. Raw OCR Text Expander (in left column or bottom)
-                with left_col:
-                    with st.expander("🔍 Raw OCR Text Inspector", expanded=False):
-                        st.markdown(f"**Total Detected Lines:** `{len(ocr_lines)}`")
-                        for idx, det in enumerate(ocr_details):
-                            st.text(f"[{det['confidence']:.2f}] Line {idx+1}: {det['text']}")
+            st.markdown(f"""<div class="saas-card p-4 mb-3"><div class="flex items-center justify-between mb-2"><div><h4 class="text-xs font-bold text-slate-900">{finding['label']}</h4><span class="text-[10px] text-slate-500 font-mono">{finding['rule_ref']}</span></div>{status_badge}</div><p class="text-xs font-semibold text-slate-800 bg-slate-50 p-2 rounded border border-slate-100 font-mono mb-2">{finding['value']}</p><p class="text-[11px] text-slate-500 mb-2">{finding['description']}</p></div>""", unsafe_allow_html=True)
 
-        else:
-            st.markdown("""
-            <div style="padding: 24px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <h4 style="margin-top: 0; color: #334155;">Ready to Inspect</h4>
-                <p style="color: #64748b; font-size: 0.9rem;">
-                    Load a package label on the left panel. The scanner will run:
-                </p>
-                <ol style="color: #475569; font-size: 0.88rem; padding-left: 20px;">
-                    <li><strong>PaddleOCR Text Extraction</strong> with angle classification.</li>
-                    <li><strong>Rule 6 Guardrail Validation</strong> (MRP, Net Qty, Mfg Date, Expiry, Grievance).</li>
-                    <li><strong>Instant Compliance Determination</strong> with statutory references.</li>
-                </ol>
-            </div>
-            """, unsafe_allow_html=True)
+            # Per-finding expandable evidence viewer
+            if evidence_data:
+                with st.expander(f"🔍 View Evidence for {finding['label']}", expanded=False):
+                    st.markdown(f"""<div class="text-xs font-mono bg-slate-900 text-slate-100 p-3 rounded-lg space-y-1"><p><strong class="text-emerald-400">Extracted Snippet:</strong> "{evidence_snippet}"</p><p><strong class="text-indigo-400">OCR Confidence:</strong> {int(finding.get('confidence', 1.0) * 100)}%</p><p><strong class="text-amber-400">Source Line Index:</strong> Line {line_ids[0] if line_ids else 'N/A'}</p><p><strong class="text-slate-400">Bounding Box Coordinates:</strong> {bbox}</p></div>""", unsafe_allow_html=True)
+
+    # 8. Raw OCR Evidence Collapsible Section
+    st.markdown("---")
+    with st.expander(f"📄 Full Raw OCR Diagnostic Log ({len(ocr_lines)} Lines Detected)", expanded=False):
+        st.caption("PaddleOCR raw line extractions with confidence scores:")
+        for det in ocr_details:
+            st.markdown(f"""<div class="flex items-center justify-between py-1 px-3 bg-white border-b border-slate-100 text-xs font-mono"><span class="text-slate-700">Line #{det.get('line_id', 0):02d}: <strong>{det.get('text', '')}</strong></span><span class="text-slate-400">conf: {det.get('confidence', 0.0):.2f}</span></div>""", unsafe_allow_html=True)
+
+    # 9. Audit JSON Report Export Action
+    st.markdown("---")
+    audit_data = {
+        "inspection_id": "INS-00241",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "input_source": source_filename,
+        "product_category": category,
+        "is_imported": is_imported,
+        "verdict_state": verdict_state,
+        "summary": summary,
+        "findings": findings,
+        "ocr_line_count": len(ocr_lines)
+    }
+
+    report_json = json.dumps(make_json_serializable(audit_data), indent=2)
+
+    st.download_button(
+        label="📥 Export Compliance Audit Report (JSON)",
+        data=report_json,
+        file_name=f"lexmetric_audit_INS-00241_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        mime="application/json"
+    )
+
+    # Cleanup temporary file
+    if 'temp_img_path' in locals() and temp_img_path:
+        cleanup_temp_file(temp_img_path)
 
 
 if __name__ == "__main__":

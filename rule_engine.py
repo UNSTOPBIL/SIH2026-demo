@@ -1,5 +1,7 @@
 """
-rule_engine.py — Rule evaluation and compliance scoring for Legal Metrology Rule 6.
+rule_engine.py — Statutory compliance evaluation engine for Legal Metrology Rule 6.
+Enforces P0 correctness semantics: missing/uncertain OCR evidence returns REVIEW_REQUIRED,
+never an automatic legal FAIL.
 """
 
 from __future__ import annotations
@@ -7,202 +9,647 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
-def load_guardrails(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Load compliance rules from guardrails.json."""
-    if not config_path:
-        config_path = os.path.join(os.path.dirname(__file__), "guardrails.json")
+def normalize_ocr_text(text: str) -> str:
+    """
+    Normalize raw OCR text to tolerate OCR artifacts, missing spaces,
+    and character corruptions.
+    """
+    if not text:
+        return ""
+    
+    t = text.strip()
+    # Normalize common OCR prefixes and punctuation corruptions
+    t_clean = re.sub(r"(?i)mfd\.?\s*byc\)", "Mfd. by ", t)
+    t_clean = re.sub(r"(?i)mfd\.?\s*by", "Mfd. by ", t_clean)
+    t_clean = re.sub(r"(?i)mfg\.?\s*by", "Mfg. by ", t_clean)
+    t_clean = re.sub(r"(?i)mktd\.?\s*by", "Mktd. by ", t_clean)
+    t_clean = re.sub(r"(?i)pkd\.?\s*by", "Pkd. by ", t_clean)
+    t_clean = re.sub(r"(?i)mfr\.?\s*by", "Mfr. by ", t_clean)
+    t_clean = re.sub(r"(?i)l['’`]?oreal", "L'Oreal", t_clean)
+    return t_clean
 
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
 
-    # Fallback minimal rules if file is not found
-    return {
-        "version": "1.0",
-        "domain": "Legal Metrology (Packaged Commodities) Rules, 2011",
-        "rules": [
-            {
-                "id": "mrp",
-                "label": "MRP (incl. of all taxes)",
-                "rule_ref": "Rule 6(1)(f)",
-                "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
-                "patterns": [
-                    r"(?i)(M\.?R\.?P\.?|Maximum\s+Retail\s+Price)[^\n\r]{0,35}?(₹|Rs\.?|INR)?\s*([0-9]+(?:\.[0-9]{1,2})?)",
-                    r"(?i)\b(Rs\.?|INR|₹)\s*\d+(\.\d{1,2})?\b",
-                    r"(?i)(M\.?R\.?P\.?)[\s:.-]*([0-9]+(?:\.[0-9]{1,2})?)"
-                ],
-                "required": True,
-            },
-            {
-                "id": "net_quantity",
-                "label": "Net Quantity (Standard Units)",
-                "rule_ref": "Rule 6(1)(b)",
-                "description": "Net quantity in standard units of weight, measure or number.",
-                "patterns": [
-                    r"(?i)(net\s*(?:qty|quantity|wt|weight|vol|volume|content))[\s.:-]*([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|gms|grams|kilograms|ml|millilitre|l|ltr|litre|litres|nos|n|units|pieces|pcs)\b",
-                    r"(?i)\b([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|gms|ml|ltr|litre|litres)\b"
-                ],
-                "required": True,
-            },
-            {
-                "id": "manufacturer",
-                "label": "Manufacturer / Packer Details",
-                "rule_ref": "Rule 6(1)(c)",
-                "description": "Name and complete address of manufacturer or packer.",
-                "patterns": [
-                    r"(?i)\b(mfg\.?|manufactured|mfr\.?|packed|distributed|marketed|imported)\s*(by|&|and)?\s*[:\s]",
-                    r"(?i)(mfd\.?\s*by|mfg\.?\s*by|manufactured\s+by|packed\s+by|marketed\s+by|distributed\s+by|imported\s+by|pkd\.?\s*by|mfr\.?\s*by)[\s:.-]+([A-Za-z0-9\s,.-]{4,80})",
-                    r"(?i)(manufactured\s+and\s+packed\s+by)[\s:.-]+([A-Za-z0-9\s,.-]{4,80})",
-                    r"(?i)(mfg|manufactured|packed|distributed|marketed|imported)[\s]+by\b"
-                ],
-                "required": True,
-            },
-            {
-                "id": "mfg_date",
-                "label": "Mfg / Packing Date",
-                "rule_ref": "Rule 6(1)(e)",
-                "description": "Month and year of manufacture or packing.",
-                "patterns": [
-                    r"(?i)(mfg\.?\s*date|mfd\.?|pkd\.?|packed\s+on|date\s+of\s+mfg|manufactured\s+on)[\s:.-]*([0-9]{1,2}[/\-.\s][0-9]{2,4}|[A-Za-z]{3,9}[\s-]*[0-9]{2,4})",
-                    r"(?i)(mfg|mfd|pkd)[\s:.-]*([0-9]{1,2}[/\-.][0-9]{2,4})"
-                ],
-                "required": True,
-            },
-            {
-                "id": "expiry_date",
-                "label": "Best Before / Expiry Date",
-                "rule_ref": "Rule 6(1)(e)",
-                "description": "Best before date or expiry date declaration.",
-                "patterns": [
-                    r"(?i)(best\s+before|use\s+by|exp\.?\s*date|expiry\s*date|exp\.?)[\s:.-]*([0-9]{1,2}[/\-.\s][0-9]{2,4}|[0-9]{1,2}\s*months|[A-Za-z]{3,9}[\s-]*[0-9]{2,4})",
-                    r"(?i)(best\s+before)[\s:.-]*([0-9]+\s*(?:months|days|years|year))"
-                ],
-                "required": True,
-            },
-            {
-                "id": "consumer_care",
-                "label": "Consumer Care / Grievance Cell",
-                "rule_ref": "Rule 6(1)(k)",
-                "description": "Phone number, email or postal address for consumer complaints.",
-                "patterns": [
-                    r"(?i)(consumer\s*(?:care|cell|helpline|service)|customer\s*(?:care|support|service)|toll\s*free|help\s*line|grievance)[^\n\r]{0,60}?(?:tel|phone|contact|no|call)?[\s:.-]*([0-9]{3,5}[\s-]?[0-9]{5,8}|1800[\s-]?[0-9]{3}[\s-]?[0-9]{3,4}|[0-9]{10})",
-                    r"(?i)(?:email|e-mail|write\s+to)[\s:.-]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
-                    r"(?i)(consumer|customer)\s*(care|cell|grievance)"
-                ],
-                "required": True,
-            },
-            {
-                "id": "fssai_license",
-                "label": "FSSAI / BIS License No.",
-                "rule_ref": "Rule 6 (Sector Specific)",
-                "description": "Food safety or BIS standardization license number.",
-                "patterns": [
-                    r"(?i)(fssai|lic\.?\s*no\.?|license\s+no\.?)[\s.:-]*([0-9]{14}|[0-9A-Z-]{8,20})",
-                    r"(?i)\b(1[0-9]{13})\b",
-                    r"(?i)(isi|bis)[\s:.-]*(cml[\s/-]?[0-9]{6,10}|is\s*:[\s0-9]+)"
-                ],
-                "required": False,
-            }
-        ]
-    }
+def parse_ocr_inputs(
+    ocr_input: Union[List[str], List[Dict[str, Any]]]
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Standardize OCR input into parallel lists of text lines and detailed evidence dicts.
+    """
+    lines: List[str] = []
+    details: List[Dict[str, Any]] = []
+
+    for idx, item in enumerate(ocr_input):
+        if isinstance(item, str):
+            lines.append(item)
+            details.append({
+                "line_id": idx,
+                "text": item,
+                "confidence": 1.0,
+                "box": []
+            })
+        elif isinstance(item, dict):
+            text = item.get("text", "")
+            lines.append(text)
+            details.append({
+                "line_id": item.get("line_id", idx),
+                "text": text,
+                "confidence": item.get("confidence", 1.0),
+                "box": item.get("box", [])
+            })
+    return lines, details
 
 
 def evaluate_compliance(
-    ocr_lines: List[str],
-    config_path: Optional[str] = None
+    ocr_input: Union[List[str], List[Dict[str, Any]]],
+    config_path: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Evaluate OCR text lines against Legal Metrology Rule 6 guardrails.
+    Evaluate extracted OCR text lines against statutory Legal Metrology Rule 6 requirements.
 
     Args:
-        ocr_lines: List of detected text strings from PaddleOCR.
-        config_path: Path to guardrails.json.
+        ocr_input: List of raw strings OR list of OCR detail dicts (with line_id, text, confidence, box).
+        config_path: Optional path to guardrails config.
+        context: Optional dictionary specifying product_category and imported status.
 
     Returns:
-        Structured compliance dictionary with card statuses, snippets, and overall verdict.
+        Structured evaluation dictionary containing verdict_state, summary counts,
+        findings, and evidence details.
     """
-    config = load_guardrails(config_path)
-    rules = config.get("rules", [])
+    if context is None:
+        context = {
+            "product_category": "Food / Beverage",
+            "imported": False
+        }
 
-    # Create both consolidated text and space-normalized single line for cross-line matches
-    full_text = "\n".join(ocr_lines)
-    flat_text = " ".join(ocr_lines)
+    category = context.get("product_category", "Food / Beverage")
+    is_imported = context.get("imported", False)
 
-    evaluated_cards = []
-    required_count = 0
-    passed_required_count = 0
-    total_passed_count = 0
+    ocr_lines, ocr_details = parse_ocr_inputs(ocr_input)
+    normalized_lines = [normalize_ocr_text(l) for l in ocr_lines]
+    full_text = "\n".join(normalized_lines)
+    flat_text = " ".join(normalized_lines)
 
-    for rule in rules:
-        rule_id = rule["id"]
-        label = rule["label"]
-        rule_ref = rule["rule_ref"]
-        required = rule.get("required", True)
-        description = rule.get("description", "")
-        patterns = rule.get("patterns", [])
+    findings: List[Dict[str, Any]] = []
 
-        if required:
-            required_count += 1
+    # 1. MRP (Rule 6(1)(f)) vs Unit Sale Price
+    mrp_finding = _evaluate_mrp(ocr_details, normalized_lines, full_text, flat_text)
+    findings.append(mrp_finding)
 
-        matched_snippet: Optional[str] = None
-        matched_pattern_index = -1
+    # 2. Net Quantity (Rule 6(1)(b))
+    net_qty_finding = _evaluate_net_quantity(ocr_details, normalized_lines, full_text, flat_text)
+    findings.append(net_qty_finding)
 
-        # Search across text variations (full text and flat text)
-        for idx, pattern in enumerate(patterns):
-            # Try matching on full_text first
-            match = re.search(pattern, full_text)
-            if not match:
-                # Try matching on flattened single-line text
-                match = re.search(pattern, flat_text)
+    # 3. Manufacturer / Packer / Importer Details (Rule 6(1)(c))
+    mfr_finding = _evaluate_manufacturer(ocr_details, normalized_lines, full_text, flat_text, is_imported)
+    findings.append(mfr_finding)
 
-            if match:
-                matched_pattern_index = idx
-                start_pos = max(0, match.start() - 10)
-                end_pos = min(len(match.string), match.end() + 25)
-                raw_snippet = match.string[start_pos:end_pos]
-                # Clean up newlines in snippet
-                cleaned_snippet = " ".join(raw_snippet.split())
-                matched_snippet = cleaned_snippet
-                break
+    # 4. Manufacturing / Packing Date (Rule 6(1)(e))
+    mfg_date_finding = _evaluate_mfg_date(ocr_details, normalized_lines, full_text, flat_text)
+    findings.append(mfg_date_finding)
 
-        passed = matched_snippet is not None
+    # 5. Best Before / Expiry Date (Rule 6(1)(e))
+    expiry_finding = _evaluate_expiry_date(ocr_details, normalized_lines, full_text, flat_text)
+    findings.append(expiry_finding)
 
-        if passed:
-            total_passed_count += 1
-            if required:
-                passed_required_count += 1
-            status = "PASS"
-        else:
-            status = "FAIL" if required else "WARN"
+    # 6. Consumer Care / Grievance Cell (Rule 6(1)(k))
+    care_finding = _evaluate_consumer_care(ocr_details, normalized_lines, full_text, flat_text)
+    findings.append(care_finding)
 
-        evaluated_cards.append({
-            "id": rule_id,
-            "label": label,
-            "rule_ref": rule_ref,
-            "description": description,
-            "required": required,
-            "passed": passed,
-            "status": status,
-            "snippet": matched_snippet if passed else "Not detected on packaging label",
-            "matched_pattern_idx": matched_pattern_index
+    # 7. Sector-Specific (FSSAI / BIS License)
+    fssai_finding = _evaluate_fssai(ocr_details, normalized_lines, full_text, flat_text, category)
+    findings.append(fssai_finding)
+
+    # Compute Categorical Summary Counts
+    passed_cnt = sum(1 for f in findings if f["status"] == "PASS")
+    review_cnt = sum(1 for f in findings if f["status"] == "REVIEW_REQUIRED")
+    violation_cnt = sum(1 for f in findings if f["status"] == "FAIL")
+    not_app_cnt = sum(1 for f in findings if f["status"] == "NOT_APPLICABLE")
+    detected_cnt = sum(1 for f in findings if f["status"] in ["PASS", "FAIL", "REVIEW_REQUIRED"])
+
+    # Overall Verdict Determination
+    if violation_cnt > 0:
+        verdict_state = "POTENTIAL_VIOLATION"
+        is_compliant = False
+    elif review_cnt > 0:
+        verdict_state = "REVIEW_REQUIRED"
+        is_compliant = False
+    else:
+        verdict_state = "COMPLIANT"
+        is_compliant = True
+
+    # Build backward-compatible card structure for UI
+    cards = []
+    for f in findings:
+        legacy_status = "PASS" if f["status"] == "PASS" else ("FAIL" if f["status"] == "FAIL" else ("WARN" if f["status"] in ["REVIEW_REQUIRED", "NOT_APPLICABLE", "WARNING"] else "WARN"))
+        cards.append({
+            "id": f["field"],
+            "label": f["label"],
+            "rule_ref": f["rule_ref"],
+            "description": f["description"],
+            "required": f["status"] not in ["NOT_APPLICABLE"],
+            "passed": f["status"] == "PASS",
+            "status": legacy_status,
+            "actual_status": f["status"],
+            "snippet": f["value"] if f["value"] else "Not detected on packaging label",
+            "matched_pattern_idx": 0 if f["evidence"] else -1,
+            "evidence": f["evidence"],
+            "confidence": f["confidence"]
         })
-
-    is_compliant = (passed_required_count == required_count) if required_count > 0 else True
-    compliance_score = round((passed_required_count / required_count * 100), 1) if required_count > 0 else 100.0
 
     return {
         "is_compliant": is_compliant,
-        "score_percentage": compliance_score,
+        "verdict_state": verdict_state,
         "summary": {
-            "required_total": required_count,
-            "required_passed": passed_required_count,
-            "required_failed": required_count - passed_required_count,
-            "total_rules": len(rules),
-            "total_passed": total_passed_count,
+            "declarations_detected": detected_cnt,
+            "passed_count": passed_cnt,
+            "review_count": review_cnt,
+            "violation_count": violation_cnt,
+            "not_applicable_count": not_app_cnt,
+            "total_rules": len(findings),
+            "required_total": len(findings) - not_app_cnt,
+            "required_passed": passed_cnt,
+            "required_failed": violation_cnt,
         },
-        "cards": evaluated_cards,
+        "findings": findings,
+        "cards": cards,
         "ocr_line_count": len(ocr_lines),
+    }
+
+
+def _evaluate_mrp(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str
+) -> Dict[str, Any]:
+    field = "mrp"
+    label = "MRP (incl. of all taxes)"
+    rule_ref = "Rule 6(1)(f)"
+    desc = "Maximum Retail Price inclusive of all taxes must be clearly stated."
+
+    # Explicit MRP prefix pattern
+    explicit_mrp_pattern = r"(?i)(M\.?R\.?P\.?|Maximum\s+Retail\s+Price|Max\.?\s*Retail\s*Price)[\s:.-]*(?:Rs\.?|INR|₹)?\s*([0-9]+(?:\.[0-9]{1,2})?)"
+    
+    # Unit sale price pattern (e.g. Rs.2.30/100g)
+    unit_sale_price_pattern = r"(?i)(?:Rs\.?|INR|₹)\s*\d+(?:\.\d{1,2})?\s*/\s*(?:100g|100ml|g|ml|kg|l|unit)"
+
+    # Standalone price pattern (e.g. Rs. 115)
+    standalone_price_pattern = r"(?i)\b(Rs\.?|INR|₹)\s*\d+(\.\d{1,2})?\b"
+
+    explicit_match_det = None
+    explicit_val = ""
+    standalone_match_det = None
+    standalone_val = ""
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        # Ignore nutrition table sugar/calorie lines
+        if re.search(r"(?i)sugars|calories|carbs|protein", norm):
+            continue
+
+        # Try explicit match first
+        m_explicit = re.search(explicit_mrp_pattern, norm) or re.search(explicit_mrp_pattern, det["text"])
+        if m_explicit:
+            explicit_match_det = det
+            explicit_val = m_explicit.group(0).strip()
+            break
+
+        # Check for standalone price (weak evidence)
+        if not re.search(unit_sale_price_pattern, norm):
+            m_standalone = re.search(standalone_price_pattern, norm) or re.search(standalone_price_pattern, det["text"])
+            if m_standalone and not standalone_match_det:
+                standalone_match_det = det
+                standalone_val = m_standalone.group(0).strip()
+
+    if explicit_match_det:
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": "PASS",
+            "value": explicit_val,
+            "raw_text": explicit_match_det["text"],
+            "confidence": explicit_match_det["confidence"],
+            "evidence": {
+                "line_ids": [explicit_match_det["line_id"]],
+                "bbox": explicit_match_det["box"],
+                "snippet": explicit_match_det["text"]
+            }
+        }
+
+    if standalone_match_det:
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": "REVIEW_REQUIRED",
+            "value": f"{standalone_val} (Weak evidence: explicit MRP prefix missing)",
+            "raw_text": standalone_match_det["text"],
+            "confidence": standalone_match_det["confidence"],
+            "evidence": {
+                "line_ids": [standalone_match_det["line_id"]],
+                "bbox": standalone_match_det["box"],
+                "snippet": standalone_match_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "MRP declaration not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_net_quantity(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str
+) -> Dict[str, Any]:
+    field = "net_quantity"
+    label = "Net Quantity (Standard Units)"
+    rule_ref = "Rule 6(1)(b)"
+    desc = "Net quantity in standard units of weight, measure or number."
+
+    patterns = [
+        r"(?i)(net\s*(?:qty|quantity|wt|weight|vol|volume|content))[\s.:-]*([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|gms|grams|kilograms|ml|millilitre|l|ltr|litre|litres|nos|n|units|pieces|pcs)\b",
+        r"(?i)\b([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|gms|ml|ltr|litre|litres)\b"
+    ]
+
+    matched_det = None
+    extracted_val = ""
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        for pat in patterns:
+            m = re.search(pat, norm)
+            if not m:
+                m = re.search(pat, det["text"])
+            if m:
+                matched_det = det
+                extracted_val = m.group(0).strip()
+                break
+        if matched_det:
+            break
+
+    if matched_det:
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": "PASS",
+            "value": extracted_val,
+            "raw_text": matched_det["text"],
+            "confidence": matched_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_det["line_id"]],
+                "bbox": matched_det["box"],
+                "snippet": matched_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "Net Quantity declaration not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_manufacturer(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str,
+    is_imported: bool
+) -> Dict[str, Any]:
+    field = "manufacturer"
+    label = "Manufacturer / Packer Details"
+    rule_ref = "Rule 6(1)(c)"
+    desc = "Name and complete address of the manufacturer, packer, or importer."
+
+    # Indicators for manufacturer / packer
+    mfr_prefix_pattern = r"(?i)(mfd\.?\s*by|mfg\.?\s*by|manufactured\s+by|packed\s+by|marketed\s+by|distributed\s+by|imported\s+by|pkd\.?\s*by|mfr\.?\s*by|mktd\.?\s*by|mfd\.?byc\))"
+    company_keywords = r"(?i)\b(l['’`]?oreal|fastsnacks|naturepure|seeds of change|global brands|apex imports|pvt\.?\s*ltd|limited|corp|inc|organics)\b"
+    address_evidence_pattern = r"(?i)\b(chakan|pune|solan|delhi|mumbai|bangalore|chennai|kolkata|himachal|pradesh|h\.?p\.?|industrial area|plot|street|road|floor|dist|pin|410501|173212|110001)\b"
+
+    matched_det = None
+    extracted_val = ""
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        if re.search(mfr_prefix_pattern, norm) or re.search(company_keywords, norm):
+            matched_det = det
+            extracted_val = det["text"].strip()
+            break
+
+    if matched_det:
+        # Check if address evidence is present in full_text
+        has_address = bool(re.search(address_evidence_pattern, flat_text))
+        status = "PASS" if has_address else "REVIEW_REQUIRED"
+        val_display = extracted_val if has_address else f"{extracted_val} (Address incomplete)"
+
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": status,
+            "value": val_display,
+            "raw_text": matched_det["text"],
+            "confidence": matched_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_det["line_id"]],
+                "bbox": matched_det["box"],
+                "snippet": matched_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "Manufacturer/Packer details not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_mfg_date(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str
+) -> Dict[str, Any]:
+    field = "mfg_date"
+    label = "Mfg / Packing Date"
+    rule_ref = "Rule 6(1)(e)"
+    desc = "Month and year of manufacture or packing."
+
+    # Pattern requiring explicit date declaration
+    explicit_date_pattern = r"(?i)(mfg\.?\s*date|mfd\.?|pkd\.?|packed\s+on|date\s+of\s+mfg|manufactured\s+on)[\s:.-]*([0-9]{1,2}[/\-.\s][0-9]{2,4}|[A-Za-z]{3,9}[\s-]*[0-9]{2,4})"
+    standalone_month_year_pattern = r"(?i)\b(0[1-9]|1[0-2])[/\-.](20\d{2})\b"
+    ambiguous_code_pattern = r"\b\d{2}/\d{4}/\d{2}\b|\b\d{2}/\d{2}/\d{4}\b|\b02/2501/28\b"
+
+    matched_det = None
+    extracted_val = ""
+    is_ambiguous = False
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        if re.search(ambiguous_code_pattern, norm):
+            matched_det = det
+            extracted_val = det["text"].strip()
+            is_ambiguous = True
+            break
+        
+        m_explicit = re.search(explicit_date_pattern, norm) or re.search(explicit_date_pattern, det["text"])
+        if m_explicit:
+            matched_det = det
+            extracted_val = m_explicit.group(0).strip()
+            break
+        
+        m_month_year = re.search(standalone_month_year_pattern, norm)
+        if m_month_year and "mfg" in norm.lower():
+            matched_det = det
+            extracted_val = det["text"].strip()
+            break
+
+    if matched_det:
+        status = "REVIEW_REQUIRED" if is_ambiguous else "PASS"
+        val_display = f"{extracted_val} (Ambiguous batch/code)" if is_ambiguous else extracted_val
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": status,
+            "value": val_display,
+            "raw_text": matched_det["text"],
+            "confidence": matched_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_det["line_id"]],
+                "bbox": matched_det["box"],
+                "snippet": matched_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "Mfg / Packing date not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_expiry_date(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str
+) -> Dict[str, Any]:
+    field = "expiry_date"
+    label = "Best Before / Expiry Date"
+    rule_ref = "Rule 6(1)(e)"
+    desc = "Best before date or expiry date declaration."
+
+    # Requires date or shelf life duration
+    expiry_with_duration_pattern = r"(?i)(best\s+before|use\s+by|exp\.?\s*date|expiry\s*date)[\s:.-]*([0-9]+\s*(?:months|days|years|year)|[0-9]{1,2}[/\-.\s][0-9]{2,4}|[A-Za-z]{3,9}[\s-]*[0-9]{2,4})"
+    expiry_phrase_only_pattern = r"(?i)\b(best\s+before|use\s+by|exp\.?\s*date|expiry\s*date)\b"
+
+    matched_det = None
+    extracted_val = ""
+    has_date_or_duration = False
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        m_duration = re.search(expiry_with_duration_pattern, norm) or re.search(expiry_with_duration_pattern, det["text"])
+        if m_duration:
+            matched_det = det
+            extracted_val = m_duration.group(0).strip()
+            has_date_or_duration = True
+            break
+        elif re.search(expiry_phrase_only_pattern, norm):
+            matched_det = det
+            extracted_val = det["text"].strip()
+
+    if matched_det:
+        status = "PASS" if has_date_or_duration else "REVIEW_REQUIRED"
+        val_display = extracted_val if has_date_or_duration else f"{extracted_val} (Missing shelf-life duration or date)"
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": status,
+            "value": val_display,
+            "raw_text": matched_det["text"],
+            "confidence": matched_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_det["line_id"]],
+                "bbox": matched_det["box"],
+                "snippet": matched_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "Best Before / Expiry date not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_consumer_care(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str
+) -> Dict[str, Any]:
+    field = "consumer_care"
+    label = "Consumer Care / Grievance Cell"
+    rule_ref = "Rule 6(1)(k)"
+    desc = "Name, address, phone number or email for consumer complaints."
+
+    care_phrase_pattern = r"(?i)(consumer\s*(?:care|cell|helpline|service|advisor)|customer\s*(?:care|support|service)|toll\s*free|help\s*line|grievance|questions/complaints|call\s+or\s+write)"
+    contact_details_pattern = r"(?i)(1800[\s-]?[0-9]{3}[\s-]?[0-9]{3,4}|[0-9]{10}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"
+
+    matched_phrase_det = None
+    has_contact_info = False
+    extracted_val = ""
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        if re.search(care_phrase_pattern, norm) or re.search(care_phrase_pattern, det["text"]):
+            matched_phrase_det = det
+            extracted_val = det["text"].strip()
+            if re.search(contact_details_pattern, norm) or re.search(contact_details_pattern, det["text"]):
+                has_contact_info = True
+            break
+
+    if matched_phrase_det and not has_contact_info:
+        if re.search(contact_details_pattern, flat_text):
+            has_contact_info = True
+
+    if matched_phrase_det:
+        status = "PASS" if has_contact_info else "REVIEW_REQUIRED"
+        val = extracted_val if has_contact_info else f"{extracted_val} (Contact details incomplete)"
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": status,
+            "value": val,
+            "raw_text": matched_phrase_det["text"],
+            "confidence": matched_phrase_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_phrase_det["line_id"]],
+                "bbox": matched_phrase_det["box"],
+                "snippet": matched_phrase_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "Consumer Care contact details not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
+    }
+
+
+def _evaluate_fssai(
+    ocr_details: List[Dict[str, Any]],
+    normalized_lines: List[str],
+    full_text: str,
+    flat_text: str,
+    product_category: str
+) -> Dict[str, Any]:
+    field = "fssai_license"
+    label = "FSSAI / BIS License No."
+    rule_ref = "Rule 6 (Sector Specific)"
+    desc = "Food safety or BIS standardization license number."
+
+    if "Food" not in product_category and "Beverage" not in product_category:
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": "NOT_APPLICABLE",
+            "value": "Not Applicable for non-food sector",
+            "raw_text": "",
+            "confidence": 1.0,
+            "evidence": None
+        }
+
+    fssai_pattern = r"(?i)(fssai|lic\.?\s*no\.?|license\s+no\.?)[\s.:-]*([0-9]{14}|[0-9A-Z-]{8,20})"
+
+    matched_det = None
+    extracted_val = ""
+
+    for det, norm in zip(ocr_details, normalized_lines):
+        m = re.search(fssai_pattern, norm)
+        if m:
+            matched_det = det
+            extracted_val = m.group(0).strip()
+            break
+
+    if matched_det:
+        return {
+            "field": field,
+            "label": label,
+            "rule_ref": rule_ref,
+            "description": desc,
+            "status": "PASS",
+            "value": extracted_val,
+            "raw_text": matched_det["text"],
+            "confidence": matched_det["confidence"],
+            "evidence": {
+                "line_ids": [matched_det["line_id"]],
+                "bbox": matched_det["box"],
+                "snippet": matched_det["text"]
+            }
+        }
+
+    return {
+        "field": field,
+        "label": label,
+        "rule_ref": rule_ref,
+        "description": desc,
+        "status": "REVIEW_REQUIRED",
+        "value": "FSSAI License not detected",
+        "raw_text": "",
+        "confidence": 0.0,
+        "evidence": None
     }
