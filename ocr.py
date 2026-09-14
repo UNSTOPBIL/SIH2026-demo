@@ -40,6 +40,12 @@ def _apply_windows_cpu_fix():
                     config.disable_onednn()
                 if hasattr(config, "disable_mkldnn"):
                     config.disable_mkldnn()
+                if hasattr(config, "set_cpu_math_library_num_threads"):
+                    try:
+                        num_threads = min(8, max(2, os.cpu_count() or 4))
+                        config.set_cpu_math_library_num_threads(num_threads)
+                    except Exception:
+                        pass
                 return _orig_create_predictor(config)
 
             p_inf.create_predictor = _safe_create_predictor
@@ -52,10 +58,23 @@ _apply_windows_cpu_fix()
 
 
 def create_paddle_engine():
-    """Instantiate PaddleOCR engine with angle classification and PP-OCRv4 architecture."""
+    """
+    Instantiate PaddleOCR engine with PP-OCRv4 architecture.
+    Explicitly disable document unwarping (UVDoc) and document orientation
+    classification so that detected polygon coordinates remain in the exact
+    coordinate space of the packaging specimen, preventing distorted or shifted bounding boxes.
+    Enables batched recognition (text_recognition_batch_size=16) for accelerated multi-core throughput.
+    """
     _apply_windows_cpu_fix()
     from paddleocr import PaddleOCR
-    return PaddleOCR(ocr_version="PP-OCRv4", use_angle_cls=True, lang="en")
+    return PaddleOCR(
+        ocr_version="PP-OCRv4",
+        use_angle_cls=True,
+        use_doc_unwarping=False,
+        use_doc_orientation_classify=False,
+        text_recognition_batch_size=16,
+        lang="en",
+    )
 
 
 def get_ocr_engine():
@@ -125,7 +144,8 @@ def extract_ocr_data(
                     if not item:
                         continue
                     if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        box = item[0]
+                        raw_box = item[0]
+                        box = raw_box.tolist() if hasattr(raw_box, "tolist") else list(raw_box)
                         text_info = item[1]
                         if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
                             text, confidence = text_info[0], text_info[1]
@@ -151,7 +171,8 @@ def extract_ocr_data(
                 dt_boxes = page.get("dt_polys", page.get("dt_boxes", []))
                 for idx, text in enumerate(rec_texts):
                     score = rec_scores[idx] if idx < len(rec_scores) else 1.0
-                    box = dt_boxes[idx] if idx < len(dt_boxes) else []
+                    raw_box = dt_boxes[idx] if idx < len(dt_boxes) else []
+                    box = raw_box.tolist() if hasattr(raw_box, "tolist") else list(raw_box)
                     text = str(text).strip()
                     conf_val = float(score) if score is not None else 0.0
                     if conf_val >= confidence_threshold and len(text) > 0:

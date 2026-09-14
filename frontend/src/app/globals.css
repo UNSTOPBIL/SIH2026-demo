@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #08090d;
+  --foreground: #f3f4f6;
+  --glow-coral: rgba(249, 115, 22, 0.18);
+  --glow-amber: rgba(245, 158, 11, 0.15);
+  --glow-crimson: rgba(239, 68, 68, 0.12);
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Ambient Radial Mesh Background */
+.bg-agent-mesh {
+  background-color: #08090d;
+  background-image: 
+    radial-gradient(circle at 50% -10%, rgba(249, 115, 22, 0.16) 0%, transparent 60%),
+    radial-gradient(circle at 100% 40%, rgba(245, 158, 11, 0.10) 0%, transparent 50%),
+    radial-gradient(circle at 0% 70%, rgba(239, 68, 68, 0.09) 0%, transparent 50%),
+    radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 24px 24px;
+}
+
+/* Frosted Glass Panels */
+.glass-panel {
+  background: rgba(14, 17, 24, 0.76);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+}
+
+.glass-panel-subtle {
+  background: rgba(20, 24, 34, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-panel-hover {
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(20, 25, 36, 0.88);
+  border-color: rgba(249, 115, 22, 0.35);
+  box-shadow: 0 14px 40px 0 rgba(249, 115, 22, 0.1), 0 0 0 1px rgba(249, 115, 22, 0.2);
+  transform: translateY(-1.5px);
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 12, 16, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 115, 22, 0.45);
+}
+
+/* Optical Scanning Beam Animation */
+@keyframes laser-sweep {
+  0% {
+    top: 0%;
+    opacity: 0.3;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0.3;
+  }
+}
+
+.animate-laser {
+  animation: laser-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+/* Scanning Reticle Grid Lines */
+@keyframes scan-grid-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.35; }
+}
+
+.animate-grid-pulse {
+  animation: scan-grid-pulse 3s ease-in-out infinite;
+}
+
+/* Target Bounding Box Pulse */
+@keyframes target-pulse {
+  0%, 100% {
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.9));
+  }
+  50% {
+    stroke-width: 4.5px;
+    filter: drop-shadow(0 0 14px rgba(249, 115, 22, 1));
+  }
+}
+
+.animate-target-pulse {
+  animation: target-pulse 1.4s ease-in-out infinite;
+}
+
+/* Card Entrance Stagger */
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-enter {
+  animation: card-fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Toast Notification Entrance */
+@keyframes toast-slide-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-toast {
+  animation: toast-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Tooltip Entrance (without horizontal translation) */
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tooltip {
+  animation: tooltip-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Corner HUD Brackets */
+.corner-bracket {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: rgba(245, 158, 11, 0.6);
+  pointer-events: none;
+}
+.corner-tl { top: -2px; left: -2px; border-top: 2px solid; border-left: 2px solid; }
+.corner-tr { top: -2px; right: -2px; border-top: 2px solid; border-right: 2px solid; }
+.corner-bl { bottom: -2px; left: -2px; border-bottom: 2px solid; border-left: 2px solid; }
+.corner-br { bottom: -2px; right: -2px; border-bottom: 2px solid; border-right: 2px solid; }

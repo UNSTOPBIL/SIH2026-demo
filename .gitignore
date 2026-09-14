@@ -31,3 +31,21 @@ temp_*
 *.pdmodel
 *.pdopt
 *.onnx
+
+# Node & Next.js build artifacts
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# Temporary captures & screenshots
+phone_current_screen.png
+*.png.tmp
+
+# Internal reference materials & competitor pitch documents
+documents/new shit/
+documents/references/
+
