@@ -158,8 +158,10 @@ def extract_ocr_data(
                         conf_val = float(confidence) if confidence is not None else 0.0
 
                         if conf_val >= confidence_threshold and len(text) > 0:
+                            line_index = len(text_lines)
                             text_lines.append(text)
                             detailed_results.append({
+                                "line_id": line_index,
                                 "text": text,
                                 "confidence": round(conf_val, 3),
                                 "box": box
@@ -176,8 +178,10 @@ def extract_ocr_data(
                     text = str(text).strip()
                     conf_val = float(score) if score is not None else 0.0
                     if conf_val >= confidence_threshold and len(text) > 0:
+                        line_index = len(text_lines)
                         text_lines.append(text)
                         detailed_results.append({
+                            "line_id": line_index,
                             "text": text,
                             "confidence": round(conf_val, 3),
                             "box": box

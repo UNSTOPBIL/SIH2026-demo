@@ -121,6 +121,53 @@ def load_and_preprocess_image(
     return img, temp_path
 
 
+def draw_ocr_bounding_boxes(
+    pil_img: Image.Image,
+    findings: List[Dict[str, Any]]
+) -> Image.Image:
+    """
+    Draw real OCR bounding polygon highlights directly on the image copy
+    using PaddleOCR bounding box coordinates.
+    """
+    annotated = pil_img.copy()
+    draw = ImageDraw.Draw(annotated)
+
+    color_map = {
+        "PASS": (22, 163, 74),       # Emerald #16a34a
+        "REVIEW_REQUIRED": (217, 119, 6),  # Amber #d97706
+        "FAIL": (220, 38, 38),        # Rose #dc2626
+        "NOT_APPLICABLE": (100, 116, 139) # Slate #64748b
+    }
+
+    try:
+        font = ImageFont.truetype("arial.ttf", 14)
+    except Exception:
+        font = ImageFont.load_default()
+
+    for finding in findings:
+        evidence = finding.get("evidence")
+        if not evidence:
+            continue
+        
+        box = evidence.get("bbox", [])
+        status = finding.get("status", "PASS")
+        outline_color = color_map.get(status, (217, 119, 6))
+
+        if isinstance(box, (list, tuple)) and len(box) >= 4:
+            try:
+                points = [(float(pt[0]), float(pt[1])) for pt in box[:4]]
+                draw.polygon(points, outline=outline_color, width=4)
+                x0, y0 = points[0]
+                label_text = f"{finding.get('label', '')}"
+                text_bbox = draw.textbbox((x0, max(0, y0 - 20)), label_text, font=font)
+                draw.rectangle(text_bbox, fill=outline_color)
+                draw.text((x0 + 2, max(0, y0 - 18)), label_text, fill=(255, 255, 255), font=font)
+            except Exception:
+                pass
+
+    return annotated
+
+
 def cleanup_temp_file(file_path: str) -> None:
     """Safely delete temporary files created during scan."""
     try:
@@ -132,3 +179,4 @@ def cleanup_temp_file(file_path: str) -> None:
 
 # Alias for concise import
 preprocess_image = load_and_preprocess_image
+
