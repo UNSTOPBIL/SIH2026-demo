@@ -20,7 +20,7 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: mit
-short_description: Automated Rule 6 statutory declaration inspection & enforcement engine.
+short_description: Legal Metrology Rule 6 statutory packaging audit API.
 ---
 
 # Legal Metrology Rule 6 Compliance API
@@ -39,16 +39,17 @@ def prepare_and_deploy():
     print(f"[*] Initializing Hugging Face API client...")
     api = HfApi(token=HF_TOKEN)
     
-    # 1. Create or verify the Space
-    print(f"[*] Ensuring Space repository exists: {REPO_ID} (SDK: docker)...")
-    api.create_repo(
-        repo_id=REPO_ID,
-        repo_type="space",
-        space_sdk="docker",
-        exist_ok=True,
-        private=False
-    )
-    print(f"[✓] Space verified: https://huggingface.co/spaces/{REPO_ID}")
+    # 1. Check if Space repository exists
+    print(f"[*] Checking Space repository: {REPO_ID} (SDK: docker)...")
+    if not api.repo_exists(repo_id=REPO_ID, repo_type="space"):
+        api.create_repo(
+            repo_id=REPO_ID,
+            repo_type="space",
+            space_sdk="docker",
+            exist_ok=True,
+            private=False
+        )
+    print(f"[OK] Space verified: https://huggingface.co/spaces/{REPO_ID}")
 
     # 2. Prepare deployment staging directory
     staging_dir = tempfile.mkdtemp(prefix="hf_deploy_")
@@ -104,9 +105,10 @@ def prepare_and_deploy():
             folder_path=staging_dir,
             repo_id=REPO_ID,
             repo_type="space",
+            delete_patterns=["*"],
             commit_message="feat: deploy Legal Metrology Rule 6 Compliance API backend"
         )
-        print(f"[✓] Deployment uploaded successfully!")
+        print(f"[OK] Deployment uploaded successfully!")
         print(f"[*] Space URL: https://huggingface.co/spaces/{REPO_ID}")
         print(f"[*] Direct API URL: https://unstopbil-legal-metrology-api.hf.space")
 
