@@ -12,6 +12,10 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+# Security: Prevent decompression bomb DoS attacks by capping maximum allocatable pixel dimensions
+Image.MAX_IMAGE_PIXELS = 50_000_000
+MAX_IMAGE_BYTES = 15 * 1024 * 1024  # 15 MB cap
+
 
 def enhance_webcam_image(
     image: Union[Image.Image, np.ndarray],
@@ -77,14 +81,19 @@ def load_and_preprocess_image(
     Returns:
         Tuple[Image.Image, str]: The processed PIL Image and the temporary file path.
     """
-    # 1. Load into PIL
+    # 1. Load into PIL with size checks
     if isinstance(image_source, Image.Image):
         img = image_source
     elif isinstance(image_source, (str, os.PathLike)):
         img = Image.open(str(image_source))
     elif isinstance(image_source, bytes):
+        if len(image_source) > MAX_IMAGE_BYTES:
+            raise ValueError(f"Image payload size ({len(image_source)} bytes) exceeds maximum limit of {MAX_IMAGE_BYTES} bytes (15MB).")
         img = Image.open(io.BytesIO(image_source))
     elif isinstance(image_source, io.BytesIO):
+        size = image_source.getbuffer().nbytes
+        if size > MAX_IMAGE_BYTES:
+            raise ValueError(f"Image stream size ({size} bytes) exceeds maximum limit of {MAX_IMAGE_BYTES} bytes (15MB).")
         img = Image.open(image_source)
     else:
         raise ValueError(f"Unsupported image input type: {type(image_source)}")

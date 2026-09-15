@@ -144,7 +144,7 @@ export const EvidenceVaultModal: React.FC<EvidenceVaultModalProps> = ({
                     </span>
                   </div>
                   <a
-                    href={`https://maps.google.com/?q=${vault.gps_location.latitude},${vault.gps_location.longitude}`}
+                    href={`https://maps.google.com/?q=${encodeURIComponent(String(vault.gps_location.latitude))},${encodeURIComponent(String(vault.gps_location.longitude))}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[11px] text-cyan-400 dark:text-cyan-400 light:text-cyan-600 hover:underline font-mono"

@@ -409,7 +409,7 @@ export default function HistoryPage() {
                                 </button>
 
                                 <a
-                                  href={`/api/reports/inspection/${scan.id}`}
+                                  href={`/api/reports/inspection/${encodeURIComponent(String(scan.id))}`}
                                   download
                                   title="Download Court-Admissible Form I Memo"
                                   className="inline-flex items-center gap-1 rounded bg-amber-500/10 light:bg-amber-500 light:text-white text-amber-300 border border-amber-500/30 light:border-amber-600 px-2 py-1 text-[11px] font-semibold hover:bg-amber-500/20"

@@ -14,7 +14,10 @@ export async function GET(
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await context.params;
-  const targetUrl = `${BACKEND_BASE}/api/${path.join("/")}${request.nextUrl.search}`;
+  const safeSegments = (path || []).filter(
+    (p) => !p.includes("..") && !p.includes("\\") && !p.includes("/")
+  );
+  const targetUrl = `${BACKEND_BASE}/api/${safeSegments.join("/")}${request.nextUrl.search}`;
   try {
     const res = await fetch(targetUrl, {
       cache: "no-store",
@@ -40,10 +43,21 @@ export async function POST(
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await context.params;
-  const targetUrl = `${BACKEND_BASE}/api/${path.join("/")}${request.nextUrl.search}`;
+  const safeSegments = (path || []).filter(
+    (p) => !p.includes("..") && !p.includes("\\") && !p.includes("/")
+  );
+  const targetUrl = `${BACKEND_BASE}/api/${safeSegments.join("/")}${request.nextUrl.search}`;
   try {
     const contentType = request.headers.get("content-type") || "";
     const body = await request.arrayBuffer();
+
+    // Defense-in-depth: cap request payload at 15MB to prevent proxy memory exhaustion
+    if (body && body.byteLength > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        { detail: "Payload exceeds maximum allowed limit of 15MB." },
+        { status: 413 }
+      );
+    }
 
     const headers: Record<string, string> = {};
     if (contentType) {

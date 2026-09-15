@@ -598,7 +598,7 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-3 px-3 text-right whitespace-nowrap">
                         <a
-                          href={`/api/reports/inspection/${scan.id}`}
+                          href={`/api/reports/inspection/${encodeURIComponent(String(scan.id))}`}
                           download
                           title="Download Form I Statutory Inspection Memo"
                           className="inline-flex items-center gap-1 rounded bg-amber-500/10 light:bg-amber-500 light:text-white hover:bg-amber-500/20 text-amber-300 light:hover:bg-amber-600 border border-amber-500/30 light:border-amber-600 px-2.5 py-1 text-[11px] font-semibold transition active:scale-95"

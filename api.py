@@ -7,6 +7,7 @@ cryptographic evidence vault generation, font size verification, and AI guided r
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from PIL import Image
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -38,6 +40,42 @@ from utils import preprocess_image
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MetrologyAPI")
+
+# Security caps & bounds
+MAX_IMAGE_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB cap
+Image.MAX_IMAGE_PIXELS = 50_000_000  # Prevent decompression bomb DoS
+
+
+def validate_image_bytes(content: bytes) -> str:
+    """
+    Validates magic bytes to ensure payload is a legitimate JPEG, PNG, WEBP, or BMP image.
+    Prevents malformed payloads or non-image binaries from consuming OCR resources.
+    """
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty image payload received.")
+    if len(content) > MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File size ({len(content)} bytes) exceeds maximum allowed limit of {MAX_IMAGE_UPLOAD_BYTES // (1024*1024)}MB."
+        )
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"RIFF") and b"WEBP" in content[:16]:
+        return "webp"
+    if content.startswith(b"BM"):
+        return "bmp"
+    # Fallback verification through PIL
+    try:
+        with Image.open(io.BytesIO(content)) as img:
+            img.verify()
+            return (img.format or "jpeg").lower()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid image format. Supported: JPEG, PNG, WEBP, BMP."
+        )
 
 
 def sanitize_json(obj: Any) -> Any:
@@ -72,7 +110,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -503,6 +541,58 @@ def get_enforcement_dashboard():
 def download_inspection_memo(scan_id: str):
     """Generates and downloads a court-admissible Form I Inspection Memo (Panchnama) PDF under Section 15."""
     rec = database.get_scan_by_id(scan_id)
+    if not rec and scan_id in _preset_cache:
+        preset = _preset_cache[scan_id]
+        rec = {
+            "id": scan_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "inspector_id": "OFFICER-LM-PRESET",
+            "district": "New Delhi Central",
+            "state": "Delhi",
+            "brand": preset.get("label_name", "Preset Specimen").split("(")[0].strip(),
+            "product_name": preset.get("label_name", "Preset Specimen"),
+            "category": "Packaged Commodity",
+            "verdict": "COMPLIANT" if preset.get("is_compliant") else "NON_COMPLIANT",
+            "score": preset.get("score_percentage", 0.0),
+            "is_compliant": preset.get("is_compliant", False),
+            "cards": preset.get("cards", []),
+            "ocr_lines": preset.get("ocr_lines", []),
+            "summary": preset.get("summary", {}),
+            "font_compliance": preset.get("font_compliance", {}),
+            "placement_compliance": preset.get("placement_compliance", {}),
+            "evidence_vault": preset.get("evidence_vault", {}),
+            "repeat_offender": preset.get("repeat_offender", {}),
+            "remediation": preset.get("remediation", {})
+        }
+    elif not rec and (scan_id.startswith("preset_") or scan_id in ("compliant", "violation", "CURRENT_SCAN")):
+        clean_id = scan_id.replace("preset_", "")
+        if clean_id not in ("compliant", "violation"):
+            clean_id = "compliant"
+        if clean_id not in _preset_cache:
+            compute_preset(clean_id)
+        preset = _preset_cache.get(clean_id, {})
+        rec = {
+            "id": scan_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "inspector_id": "OFFICER-LM-INSPECTOR",
+            "district": "New Delhi Central",
+            "state": "Delhi",
+            "brand": preset.get("label_name", "Preset Specimen").split("(")[0].strip(),
+            "product_name": preset.get("label_name", "Preset Specimen"),
+            "category": "Packaged Commodity",
+            "verdict": "COMPLIANT" if preset.get("is_compliant") else "NON_COMPLIANT",
+            "score": preset.get("score_percentage", 0.0),
+            "is_compliant": preset.get("is_compliant", False),
+            "cards": preset.get("cards", []),
+            "ocr_lines": preset.get("ocr_lines", []),
+            "summary": preset.get("summary", {}),
+            "font_compliance": preset.get("font_compliance", {}),
+            "placement_compliance": preset.get("placement_compliance", {}),
+            "evidence_vault": preset.get("evidence_vault", {}),
+            "repeat_offender": preset.get("repeat_offender", {}),
+            "remediation": preset.get("remediation", {})
+        }
+
     if not rec:
         raise HTTPException(status_code=404, detail=f"Inspection record '{scan_id}' not found.")
     try:
@@ -559,6 +649,7 @@ async def scan_uploaded_file(
     start_time = time.time()
     try:
         content = await file.read()
+        validate_image_bytes(content)
         pil_img, processed_path = preprocess_image(content)
         width, height = pil_img.size
         ocr_lines, ocr_details = extract_ocr_data(processed_path, confidence_threshold=confidence_threshold)
@@ -637,6 +728,8 @@ async def scan_uploaded_file(
             "repeat_offender": repeat_offender,
             "remediation": remediation,
         }))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error scanning uploaded image: %s", e)
         raise HTTPException(status_code=500, detail=f"Inference error: {str(e)}")
@@ -650,9 +743,16 @@ def scan_base64_image(req: Base64ScanRequest):
     start_time = time.time()
     try:
         raw_b64 = req.image_base64
+        if len(raw_b64) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Base64 payload exceeds maximum 25MB limit.")
         if "," in raw_b64:
             raw_b64 = raw_b64.split(",")[1]
-        img_bytes = base64.b64decode(raw_b64)
+        try:
+            img_bytes = base64.b64decode(raw_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Malformed base64 image data.")
+
+        validate_image_bytes(img_bytes)
 
         pil_img, processed_path = preprocess_image(img_bytes, enhance_quality=bool(req.enhance_quality))
         width, height = pil_img.size
@@ -731,6 +831,8 @@ def scan_base64_image(req: Base64ScanRequest):
             "repeat_offender": repeat_offender,
             "remediation": remediation,
         }))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error scanning base64 image: %s", e)
         raise HTTPException(status_code=500, detail=f"Webcam scan error: {str(e)}")

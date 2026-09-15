@@ -304,7 +304,7 @@ export const StatutoryFindings: React.FC<StatutoryFindingsProps> = ({
           {/* Official Form I Memo (PDF) Download */}
           {scan && (
             <a
-              href={`/api/reports/inspection/${scan.id || "CURRENT_SCAN"}`}
+              href={`/api/reports/inspection/${encodeURIComponent(String(scan.id || "CURRENT_SCAN"))}`}
               download
               title="Download official Legal Metrology Form I Inspection & Seizure Memo"
               className="gloss-shine inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 light:bg-amber-500 light:text-white light:hover:bg-amber-600 px-3 py-1 text-xs font-semibold text-amber-300 light:border-amber-600 transition shadow-xs active:scale-95"
