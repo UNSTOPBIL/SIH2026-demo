@@ -12,7 +12,8 @@ import { EvidenceVaultModal } from "../components/EvidenceVaultModal";
 import { RemediationToggle } from "../components/RemediationToggle";
 import { FooterRibbon } from "../components/FooterRibbon";
 import { Toast } from "../components/Toast";
-import { ScanResponse } from "../types/scanner";
+import { TestGalleryModal } from "../components/TestGalleryModal";
+import { ScanResponse, GalleryPackage } from "../types/scanner";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { optimizeImage } from "../utils/imageOptimizer";
 
@@ -50,6 +51,7 @@ export default function Home() {
   const [isRawOcrModalOpen, setIsRawOcrModalOpen] = useState(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const [isEvidenceVaultOpen, setIsEvidenceVaultOpen] = useState(false);
+  const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
 
   // Toast notification state
   const [toast, setToast] = useState<{
@@ -58,6 +60,7 @@ export default function Home() {
   } | null>(null);
 
   const presetCacheRef = useRef<Record<string, ScanResponse>>({});
+  const lastActionRef = useRef<(() => void) | null>(null);
 
   const showToast = (message: string, type: "success" | "info" | "warning" | "error" = "success") => {
     setToast({ message, type });
@@ -65,6 +68,7 @@ export default function Home() {
 
   // Load preset scan
   const loadPreset = useCallback(async (presetId: "compliant" | "violation", forceRefresh = false) => {
+    lastActionRef.current = () => loadPreset(presetId, true);
     setActivePreset(presetId);
     setErrorMessage(null);
     setIsRemediationActive(false); // Reset remediation view when switching specimens
@@ -111,12 +115,47 @@ export default function Home() {
     }
   }, []);
 
+  const loadGalleryPackage = useCallback(async (pkg: GalleryPackage) => {
+    setActivePreset(null);
+    setErrorMessage(null);
+    setIsRemediationActive(false);
+    setIsLoading(true);
+    setActiveImageTitle(`${pkg.brand} — ${pkg.product_name}`);
+    lastActionRef.current = () => loadGalleryPackage(pkg);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/test-gallery/audit/${pkg.id}?package_width_mm=${packageWidthMm}`, {
+        method: "POST"
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned ${res.status}`);
+      }
+      const data: ScanResponse = await res.json();
+      setCurrentScan(data);
+      if (data.image_data_url) {
+        setActiveImageUri(data.image_data_url);
+      }
+      showToast(
+        `Specimen Audited: ${pkg.brand} (${data.is_compliant ? "COMPLIANT" : "POTENTIAL REVIEW/VIOLATION"})`,
+        data.is_compliant ? "success" : "warning"
+      );
+    } catch (err: any) {
+      console.error("Failed to audit test package:", err);
+      setErrorMessage(`Failed to audit package ${pkg.brand}: ${err.message}`);
+      showToast("Specimen audit failed", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [packageWidthMm]);
+
   useEffect(() => {
     loadPreset("compliant");
   }, [loadPreset]);
 
   // Handle custom file upload (memory-safe progressive downscaling)
   const handleFileUpload = async (file: File) => {
+    lastActionRef.current = () => handleFileUpload(file);
     setIsLoading(true);
     setErrorMessage(null);
     setIsRemediationActive(false);
@@ -170,6 +209,7 @@ export default function Home() {
 
   // Handle webcam capture
   const handleCameraCapture = async (base64Image: string, enhanceQuality: boolean = true) => {
+    lastActionRef.current = () => handleCameraCapture(base64Image, enhanceQuality);
     setActiveImageUri(base64Image);
     setActiveImageTitle("Live Camera Specimen");
     setIsLoading(true);
@@ -211,6 +251,7 @@ export default function Home() {
 
   // Handle direct hardware camera capture
   const handleHardwareCameraCapture = async () => {
+    lastActionRef.current = () => handleHardwareCameraCapture();
     setIsLoading(true);
     setErrorMessage(null);
     setIsRemediationActive(false);
@@ -268,7 +309,7 @@ export default function Home() {
   );
 
   return (
-    <div className="bg-agent-mesh min-h-screen flex flex-col selection:bg-amber-500/30 selection:text-amber-200">
+    <div className="bg-agent-mesh min-h-screen flex flex-col selection:bg-amber-500/30 selection:text-amber-200 light:selection:bg-amber-200 light:selection:text-amber-900">
       {/* Top Navbar */}
       <Navbar
         currentScan={currentScan}
@@ -294,6 +335,7 @@ export default function Home() {
           onOpenVault={() => setIsEvidenceVaultOpen(true)}
           hasVaultData={!!currentScan?.evidence_vault}
           isPresetCached={(id) => !!presetCacheRef.current[id]}
+          onOpenGallery={() => setIsGalleryModalOpen(true)}
         />
 
         {/* Guided Remediation Banner ("Fix It For Me" - Differentiator 5) */}
@@ -308,15 +350,21 @@ export default function Home() {
 
         {/* Error Notification Banner */}
         {errorMessage && (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-xs text-rose-200 shadow-lg animate-toast">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-500/30 light:border-rose-300 bg-rose-950/40 light:bg-rose-50 p-4 text-xs text-rose-200 light:text-rose-800 shadow-lg light:shadow-sm animate-toast">
             <div className="flex items-center gap-2.5">
-              <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+              <AlertCircle className="h-4 w-4 text-rose-400 light:text-rose-600 shrink-0" />
               <span>{errorMessage}</span>
             </div>
             <button
               type="button"
-              onClick={() => loadPreset("compliant")}
-              className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-500/30 transition shrink-0"
+              onClick={() => {
+                if (lastActionRef.current) {
+                  lastActionRef.current();
+                } else {
+                  loadPreset("compliant");
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 light:bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-300 light:text-rose-700 hover:bg-rose-500/30 light:hover:bg-rose-200 transition shrink-0 active:scale-95"
             >
               <RefreshCw className="h-3 w-3" />
               <span>Retry</span>
@@ -378,6 +426,13 @@ export default function Home() {
         isOpen={isEvidenceVaultOpen}
         onClose={() => setIsEvidenceVaultOpen(false)}
         vault={currentScan?.evidence_vault}
+      />
+
+      <TestGalleryModal
+        isOpen={isGalleryModalOpen}
+        onClose={() => setIsGalleryModalOpen(false)}
+        onSelectPackage={loadGalleryPackage}
+        apiBaseUrl={API_BASE_URL}
       />
 
       {/* Floating Toast System */}

@@ -11,19 +11,24 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
+import database
+import report_generator
 from ocr import extract_ocr_data
 from remediation_engine import generate_remediated_artwork
 from rule_engine import (
     evaluate_compliance,
     evaluate_font_compliance,
+    evaluate_placement_compliance,
+    evaluate_text_contrast,
     evaluate_repeat_offender,
     generate_evidence_vault,
     load_guardrails,
@@ -74,6 +79,9 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets", "sample_labels")
+MASS_TEST_DIR = os.path.join(BASE_DIR, "assets", "mass_test_labels")
+MASS_MANIFEST_PATH = os.path.join(MASS_TEST_DIR, "mass_test_manifest.json")
+MASS_RESULTS_PATH = os.path.join(BASE_DIR, "tests", "mass_test_results.json")
 
 
 class Base64ScanRequest(BaseModel):
@@ -94,6 +102,17 @@ class RemediateRequest(BaseModel):
     image_base64: str
     cards: List[Dict[str, Any]]
     ocr_details: Optional[List[Dict[str, Any]]] = None
+
+
+@app.on_event("startup")
+def on_startup():
+    try:
+        database.init_db()
+        seeded = database.seed_existing_gallery_scans(MASS_MANIFEST_PATH, MASS_RESULTS_PATH)
+        if seeded > 0:
+            logger.info("Seeded %d existing scans into Legal Metrology SQLite repository", seeded)
+    except Exception as e:
+        logger.error("Error initializing SQLite repository: %s", e)
 
 
 @app.get("/api/health")
@@ -179,10 +198,10 @@ def compute_preset(preset_id: str, package_width_mm: float = 100.0) -> dict:
         "ocr_line_count": len(ocr_lines),
         "ocr_lines": ocr_lines,
         "ocr_details": ocr_details,
-        "is_compliant": eval_result["is_compliant"],
-        "score_percentage": eval_result["score_percentage"],
-        "summary": eval_result["summary"],
-        "cards": eval_result["cards"],
+        "is_compliant": eval_result.get("is_compliant", False),
+        "score_percentage": eval_result.get("score_percentage", 0.0),
+        "summary": eval_result.get("summary", {}),
+        "cards": eval_result.get("cards", []),
         "font_compliance": font_compliance,
         "evidence_vault": evidence_vault,
         "repeat_offender": repeat_offender,
@@ -227,6 +246,280 @@ def get_preset_scan(preset_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/test-gallery")
+def get_test_gallery():
+    """
+    Returns the catalog of diverse unseen test packages across FMCG categories
+    for instant browser testing in the gallery drawer.
+    """
+    if not os.path.exists(MASS_MANIFEST_PATH):
+        return {"packages": [], "count": 0}
+    try:
+        with open(MASS_MANIFEST_PATH, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        for item in manifest:
+            item["image_url"] = f"/api/test-gallery/image/{item['filename']}"
+        return {"packages": manifest, "count": len(manifest)}
+    except Exception as e:
+        logger.error("Error reading test gallery manifest: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/test-gallery/image/{filename}")
+def get_test_gallery_image(filename: str):
+    """
+    Serves a test specimen image directly from assets/mass_test_labels/.
+    """
+    safe_name = os.path.basename(filename)
+    img_path = os.path.join(MASS_TEST_DIR, safe_name)
+    if not os.path.exists(img_path):
+        raise HTTPException(status_code=404, detail=f"Image {filename} not found.")
+    return FileResponse(img_path, media_type="image/png")
+
+
+@app.post("/api/test-gallery/audit/{package_id}")
+def audit_gallery_package(package_id: str, package_width_mm: float = 100.0):
+    """
+    Instant statutory audit for any test gallery specimen package.
+    Executes OCR, Rule 6 validation, font sizing, evidence vault, and remediation.
+    """
+    if not os.path.exists(MASS_MANIFEST_PATH):
+        raise HTTPException(status_code=404, detail="Test gallery manifest not found.")
+    
+    with open(MASS_MANIFEST_PATH, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    
+    pkg = next((p for p in manifest if p["id"] == package_id), None)
+    if not pkg:
+        raise HTTPException(status_code=404, detail=f"Package ID '{package_id}' not found in test gallery.")
+    
+    target_path = os.path.join(MASS_TEST_DIR, pkg["filename"])
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail=f"Target specimen file {pkg['filename']} not found.")
+
+    start_time = time.time()
+    try:
+        pil_img, processed_path = preprocess_image(target_path, enhance_quality=True)
+        width, height = pil_img.size
+        ocr_lines, ocr_details = extract_ocr_data(processed_path, confidence_threshold=0.50)
+        eval_result = evaluate_compliance(ocr_lines, context={"product_category": pkg.get("category", "Food / Beverage")})
+
+        font_compliance = evaluate_font_compliance(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"],
+            image_width_px=width,
+            image_height_px=height,
+            package_width_mm=package_width_mm,
+        )
+
+        placement_compliance = evaluate_placement_compliance(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"],
+            image_width_px=width,
+            image_height_px=height
+        )
+
+        contrast_compliance = evaluate_text_contrast(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"]
+        )
+
+        with open(processed_path, "rb") as f_proc:
+            raw_proc = f_proc.read()
+            proc_b64 = base64.b64encode(raw_proc).decode("utf-8")
+        image_data_url = f"data:image/jpeg;base64,{proc_b64}"
+
+        evidence_vault = generate_evidence_vault(raw_proc, eval_result)
+        repeat_offender = evaluate_repeat_offender("\n".join(ocr_lines))
+        remediation = generate_remediated_artwork(pil_img, eval_result["cards"], ocr_details)
+
+        # Save inspection record to persistent SQLite database
+        scan_record_id = f"SCAN-PKG-{pkg['id']}"
+        database.save_scan({
+            "id": scan_record_id,
+            "brand": pkg.get("brand"),
+            "product_name": pkg.get("product_name"),
+            "category": pkg.get("category"),
+            "verdict_state": eval_result.get("verdict_state"),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "is_compliant": eval_result.get("is_compliant", False),
+            "cards": eval_result.get("cards", []),
+            "ocr_lines": ocr_lines,
+            "summary": eval_result.get("summary", {}),
+            "evidence_vault": evidence_vault,
+            "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "remediation": remediation,
+            "repeat_offender": repeat_offender,
+            "image_filename": pkg.get("filename")
+        })
+
+        latency = round(time.time() - start_time, 3)
+
+        return JSONResponse(content=sanitize_json({
+            "id": scan_record_id,
+            "source": "test_gallery",
+            "package_id": package_id,
+            "brand": pkg.get("brand"),
+            "category": pkg.get("category"),
+            "expected_verdict": pkg.get("expected_verdict"),
+            "label_name": f"{pkg.get('brand')} - {pkg.get('product_name')}",
+            "filename": pkg.get("filename"),
+            "latency_seconds": latency,
+            "image_data_url": image_data_url,
+            "dimensions": {"width": width, "height": height},
+            "ocr_line_count": len(ocr_lines),
+            "ocr_lines": ocr_lines,
+            "ocr_details": ocr_details,
+            "is_compliant": eval_result.get("is_compliant", False),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "summary": eval_result.get("summary", {}),
+            "cards": eval_result.get("cards", []),
+            "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "contrast_compliance": contrast_compliance,
+            "evidence_vault": evidence_vault,
+            "repeat_offender": repeat_offender,
+            "remediation": remediation,
+        }))
+    except Exception as e:
+        logger.error("Error auditing test package %s: %s", package_id, e)
+        raise HTTPException(status_code=500, detail=f"Audit error: {str(e)}")
+
+
+@app.get("/api/batch-audit/results")
+def get_batch_audit_results():
+    """
+    Returns aggregate mass testing benchmark metrics and package results.
+    """
+    if not os.path.exists(MASS_RESULTS_PATH):
+        raise HTTPException(status_code=404, detail="Batch audit benchmark has not been executed yet. Run tests/mass_packet_test_runner.py.")
+    try:
+        with open(MASS_RESULTS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return JSONResponse(content=data)
+    except Exception as e:
+        logger.error("Error loading batch audit results: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================================
+# REPOSITORY, HISTORY & ENFORCEMENT OFFICIAL DASHBOARD ENDPOINTS
+# =====================================================================
+
+@app.get("/api/scans")
+def list_scans(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    verdict: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None)
+):
+    """Returns paginated historical packaging inspections filtered by verdict, category, date, or keyword."""
+    try:
+        data = database.get_scan_history(
+            page=page,
+            limit=limit,
+            verdict=verdict,
+            category=category,
+            search=search,
+            from_date=from_date,
+            to_date=to_date
+        )
+        return JSONResponse(content=sanitize_json(data))
+    except Exception as e:
+        logger.error("Error retrieving scan history: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scans/{scan_id}")
+def get_scan_record(scan_id: str):
+    """Returns full forensic audit details for a specific scan ID."""
+    rec = database.get_scan_by_id(scan_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Scan ID '{scan_id}' not found in inspection repository.")
+    return JSONResponse(content=sanitize_json(rec))
+
+
+@app.get("/api/products")
+def list_products(
+    search: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Returns product compliance repository records showing historical pass/fail track records."""
+    try:
+        data = database.get_product_repository(
+            search=search,
+            category=category,
+            page=page,
+            limit=limit
+        )
+        return JSONResponse(content=sanitize_json(data))
+    except Exception as e:
+        logger.error("Error retrieving product repository: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/enforcement/analytics")
+def get_enforcement_dashboard():
+    """Returns comprehensive real-time KPIs and trends for Legal Metrology enforcement official dashboards."""
+    try:
+        analytics = database.get_enforcement_analytics()
+        return JSONResponse(content=sanitize_json(analytics))
+    except Exception as e:
+        logger.error("Error generating enforcement analytics: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/inspection/{scan_id}")
+def download_inspection_memo(scan_id: str):
+    """Generates and downloads a court-admissible Form I Inspection Memo (Panchnama) PDF under Section 15."""
+    rec = database.get_scan_by_id(scan_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Inspection record '{scan_id}' not found.")
+    try:
+        pdf_bytes = report_generator.generate_inspection_pdf(rec)
+        filename = f"legal_metrology_form_I_{scan_id}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        logger.error("Error generating PDF memo for %s: %s", scan_id, e)
+        raise HTTPException(status_code=500, detail=f"PDF generation error: {str(e)}")
+
+
+@app.get("/api/exports/scans.csv")
+def export_scans_csv(
+    verdict: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None)
+):
+    """Exports historical inspections as a CSV spreadsheet for state regulatory records."""
+    try:
+        data = database.get_scan_history(page=1, limit=1000, verdict=verdict, category=category, search=search)
+        csv_text = report_generator.generate_scans_csv(data.get("scans", []))
+        filename = f"legal_metrology_inspections_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        logger.error("Error exporting CSV: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @app.post("/api/scan")
 async def scan_uploaded_file(
     file: Optional[UploadFile] = File(None),
@@ -251,7 +544,20 @@ async def scan_uploaded_file(
             ocr_details=ocr_details,
             cards=eval_result["cards"],
             image_width_px=width,
+            image_height_px=height,
             package_width_mm=package_width_mm,
+        )
+
+        placement_compliance = evaluate_placement_compliance(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"],
+            image_width_px=width,
+            image_height_px=height
+        )
+
+        contrast_compliance = evaluate_text_contrast(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"]
         )
 
         with open(processed_path, "rb") as f_proc:
@@ -263,9 +569,32 @@ async def scan_uploaded_file(
         repeat_offender = evaluate_repeat_offender("\n".join(ocr_lines))
         remediation = generate_remediated_artwork(pil_img, eval_result["cards"], ocr_details)
 
+        # Detect brand/product name for repository
+        brand_guess = ocr_lines[0] if ocr_lines else "Retail Commodity"
+        prod_guess = ocr_lines[1] if len(ocr_lines) > 1 else "Packaged Good"
+
+        scan_id = database.save_scan({
+            "brand": brand_guess,
+            "product_name": prod_guess,
+            "category": "Packaged Commodity",
+            "verdict_state": eval_result.get("verdict_state"),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "is_compliant": eval_result.get("is_compliant", False),
+            "cards": eval_result.get("cards", []),
+            "ocr_lines": ocr_lines,
+            "summary": eval_result.get("summary", {}),
+            "evidence_vault": evidence_vault,
+            "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "remediation": remediation,
+            "repeat_offender": repeat_offender,
+            "image_filename": file.filename
+        })
+
         latency = round(time.time() - start_time, 3)
 
         return JSONResponse(content=sanitize_json({
+            "id": scan_id,
             "filename": file.filename,
             "latency_seconds": latency,
             "image_data_url": image_data_url,
@@ -273,11 +602,13 @@ async def scan_uploaded_file(
             "ocr_line_count": len(ocr_lines),
             "ocr_lines": ocr_lines,
             "ocr_details": ocr_details,
-            "is_compliant": eval_result["is_compliant"],
-            "score_percentage": eval_result["score_percentage"],
-            "summary": eval_result["summary"],
-            "cards": eval_result["cards"],
+            "is_compliant": eval_result.get("is_compliant", False),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "summary": eval_result.get("summary", {}),
+            "cards": eval_result.get("cards", []),
             "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "contrast_compliance": contrast_compliance,
             "evidence_vault": evidence_vault,
             "repeat_offender": repeat_offender,
             "remediation": remediation,
@@ -308,7 +639,20 @@ def scan_base64_image(req: Base64ScanRequest):
             ocr_details=ocr_details,
             cards=eval_result["cards"],
             image_width_px=width,
+            image_height_px=height,
             package_width_mm=req.package_width_mm or 100.0,
+        )
+
+        placement_compliance = evaluate_placement_compliance(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"],
+            image_width_px=width,
+            image_height_px=height
+        )
+
+        contrast_compliance = evaluate_text_contrast(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"]
         )
 
         with open(processed_path, "rb") as f_proc:
@@ -320,9 +664,31 @@ def scan_base64_image(req: Base64ScanRequest):
         repeat_offender = evaluate_repeat_offender("\n".join(ocr_lines))
         remediation = generate_remediated_artwork(pil_img, eval_result["cards"], ocr_details)
 
+        brand_guess = ocr_lines[0] if ocr_lines else "Webcam Captured Item"
+        prod_guess = ocr_lines[1] if len(ocr_lines) > 1 else "Packaged Specimen"
+
+        scan_id = database.save_scan({
+            "brand": brand_guess,
+            "product_name": prod_guess,
+            "category": "Packaged Commodity",
+            "verdict_state": eval_result.get("verdict_state"),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "is_compliant": eval_result.get("is_compliant", False),
+            "cards": eval_result.get("cards", []),
+            "ocr_lines": ocr_lines,
+            "summary": eval_result.get("summary", {}),
+            "evidence_vault": evidence_vault,
+            "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "remediation": remediation,
+            "repeat_offender": repeat_offender,
+            "image_filename": "webcam_scan.jpg"
+        })
+
         latency = round(time.time() - start_time, 3)
 
         return JSONResponse(content=sanitize_json({
+            "id": scan_id,
             "source": "webcam",
             "latency_seconds": latency,
             "image_data_url": image_data_url,
@@ -330,11 +696,13 @@ def scan_base64_image(req: Base64ScanRequest):
             "ocr_line_count": len(ocr_lines),
             "ocr_lines": ocr_lines,
             "ocr_details": ocr_details,
-            "is_compliant": eval_result["is_compliant"],
-            "score_percentage": eval_result["score_percentage"],
-            "summary": eval_result["summary"],
-            "cards": eval_result["cards"],
+            "is_compliant": eval_result.get("is_compliant", False),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "summary": eval_result.get("summary", {}),
+            "cards": eval_result.get("cards", []),
             "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "contrast_compliance": contrast_compliance,
             "evidence_vault": evidence_vault,
             "repeat_offender": repeat_offender,
             "remediation": remediation,
@@ -443,7 +811,20 @@ def capture_and_audit_hardware_camera(req: HardwareCameraCaptureRequest = Hardwa
             ocr_details=ocr_details,
             cards=eval_result["cards"],
             image_width_px=width,
+            image_height_px=height,
             package_width_mm=req.package_width_mm or 100.0,
+        )
+
+        placement_compliance = evaluate_placement_compliance(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"],
+            image_width_px=width,
+            image_height_px=height
+        )
+
+        contrast_compliance = evaluate_text_contrast(
+            ocr_details=ocr_details,
+            cards=eval_result["cards"]
         )
 
         with open(processed_path, "rb") as f_proc:
@@ -455,9 +836,31 @@ def capture_and_audit_hardware_camera(req: HardwareCameraCaptureRequest = Hardwa
         repeat_offender = evaluate_repeat_offender("\n".join(ocr_lines))
         remediation = generate_remediated_artwork(pil_img, eval_result["cards"], ocr_details)
 
+        brand_guess = ocr_lines[0] if ocr_lines else "Direct Camera Capture"
+        prod_guess = ocr_lines[1] if len(ocr_lines) > 1 else f"Hardware Camera Item (Dev {device_idx})"
+
+        scan_id = database.save_scan({
+            "brand": brand_guess,
+            "product_name": prod_guess,
+            "category": "Packaged Commodity",
+            "verdict_state": eval_result.get("verdict_state"),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "is_compliant": eval_result.get("is_compliant", False),
+            "cards": eval_result.get("cards", []),
+            "ocr_lines": ocr_lines,
+            "summary": eval_result.get("summary", {}),
+            "evidence_vault": evidence_vault,
+            "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "remediation": remediation,
+            "repeat_offender": repeat_offender,
+            "image_filename": f"hardware_camera_dev_{device_idx}.jpg"
+        })
+
         latency = round(time.time() - start_time, 3)
 
         return JSONResponse(content=sanitize_json({
+            "id": scan_id,
             "source": "hardware_camera",
             "label_name": f"Live Hardware Camera (Device {device_idx})",
             "latency_seconds": latency,
@@ -466,11 +869,13 @@ def capture_and_audit_hardware_camera(req: HardwareCameraCaptureRequest = Hardwa
             "ocr_line_count": len(ocr_lines),
             "ocr_lines": ocr_lines,
             "ocr_details": ocr_details,
-            "is_compliant": eval_result["is_compliant"],
-            "score_percentage": eval_result["score_percentage"],
-            "summary": eval_result["summary"],
-            "cards": eval_result["cards"],
+            "is_compliant": eval_result.get("is_compliant", False),
+            "score_percentage": eval_result.get("score_percentage", 0.0),
+            "summary": eval_result.get("summary", {}),
+            "cards": eval_result.get("cards", []),
             "font_compliance": font_compliance,
+            "placement_compliance": placement_compliance,
+            "contrast_compliance": contrast_compliance,
             "evidence_vault": evidence_vault,
             "repeat_offender": repeat_offender,
             "remediation": remediation,

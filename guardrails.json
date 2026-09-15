@@ -1,16 +1,15 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "domain": "Legal Metrology (Packaged Commodities) Rules, 2011",
   "rules": [
     {
-      "id": "mrp",
-      "label": "MRP (incl. of all taxes)",
-      "rule_ref": "Rule 6(1)(f)",
-      "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
+      "id": "generic_name",
+      "label": "Common / Generic Commodity Name",
+      "rule_ref": "Rule 6(1)(a)",
+      "description": "The common or generic name of the commodity must be prominently declared.",
       "patterns": [
-        "(?i)(M\\.?R\\.?P\\.?|Maximum\\s+Retail\\s+Price)[^\\n\\r]{0,35}?(₹|Rs\\.?|INR)?\\s*([0-9]+(?:\\.[0-9]{1,2})?)",
-        "(?i)\\b(Rs\\.?|INR|₹)\\s*\\d+(\\.\\d{1,2})?\\b",
-        "(?i)(M\\.?R\\.?P\\.?)[\\s:.-]*([0-9]+(?:\\.[0-9]{1,2})?)"
+        "(?i)(?:product|commodity|item|name)\\s*[:\\-]?\\s*([A-Za-z0-9\\s&,'-]{3,60})",
+        "(?i)\\b(biscuit|biscuits|tea|coffee|detergent|soap|powder|wafers|chips|atta|flour|salt|oil|spices|masala|noodles|toothpaste|shampoo|butter|ghee|bulb|lamp|cord|strip|cleaner|balm)\\b"
       ],
       "required": true
     },
@@ -20,7 +19,7 @@
       "rule_ref": "Rule 6(1)(b)",
       "description": "Net quantity in standard units of weight, measure or number.",
       "patterns": [
-        "(?i)(net\\s*(?:qty|quantity|wt|weight|vol|volume|content))[\\s.:-]*([0-9]+(?:\\.[0-9]+)?)\\s*(kg|g|gm|gms|grams|kilograms|ml|millilitre|l|ltr|litre|litres|nos|n|units|pieces|pcs)\\b",
+        "(?i)(net\\s*(?:qty|quantity|wt|weight|vol|volume|content))[\\s.:-]*([0-9]+(?:\\.[0-9]+)?)\\s*(kg|g|gm|gms|grams|kilograms|ml|millilitre|l|ltr|litre|litres|nos|n|units?|pieces|pcs)\\b",
         "(?i)\\b([0-9]+(?:\\.[0-9]+)?)\\s*(kg|g|gm|gms|ml|ltr|litre|litres)\\b"
       ],
       "required": true
@@ -39,12 +38,24 @@
       "required": true
     },
     {
+      "id": "dimensions",
+      "label": "Dimensions & Size (Where Applicable)",
+      "rule_ref": "Rule 6(1)(d)",
+      "description": "Dimensions or unit count for dimensional or multi-piece packaged commodities.",
+      "patterns": [
+        "(?i)\\b([0-9]+(?:\\.[0-9]+)?)\\s*(?:cm|mm|m|meter|meters|inch|inches|ft)\\s*(?:x|\\*|by)\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(?:cm|mm|m|inch)?\\b",
+        "(?i)\\b(?:length|width|height|size|dimension|dimensions)\\s*[:\\-]?\\s*[0-9]+",
+        "(?i)\\b[0-9]+\\s*(?:units?|pieces|pcs|n|nos)\\b"
+      ],
+      "required": false
+    },
+    {
       "id": "mfg_date",
       "label": "Mfg / Packing Date",
       "rule_ref": "Rule 6(1)(e)",
       "description": "Month and year of manufacture or packing.",
       "patterns": [
-        "(?i)(mfg\\.?\\s*date|mfd\\.?|pkd\\.?|packed\\s+on|date\\s+of\\s+mfg|manufactured\\s+on)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
+        "(?i)(mfg\\.?\\s*date|mfd\\.?|pkd\\.?|packed\\s+on|packed\\s*[:\\-]|date\\s+of\\s+mfg|manufactured\\s+on)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
         "(?i)(mfg|mfd|pkd)[\\s:.-]*([0-9]{1,2}[/\\-.][0-9]{2,4})"
       ],
       "required": true
@@ -52,11 +63,34 @@
     {
       "id": "expiry_date",
       "label": "Best Before / Expiry Date",
-      "rule_ref": "Rule 6(1)(e)",
-      "description": "Best before date or expiry date declaration.",
+      "rule_ref": "Rule 6(1)(e) Proviso",
+      "description": "Best before date or expiry date declaration for perishable commodities.",
       "patterns": [
-        "(?i)(best\\s+before|use\\s+by|exp\\.?\\s*date|expiry\\s*date|exp\\.?)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[0-9]{1,2}\\s*months|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
+        "(?i)(best\\s+before|use\\s+(?:by|before)|exp(?:iry)?\\.?(?:\\s*date)?)[\\s:.-]*([0-9]{1,2}[/\\-.\\s][0-9]{2,4}|[0-9]{1,2}\\s*months|[A-Za-z]{3,9}[\\s-]*[0-9]{2,4})",
         "(?i)(best\\s+before)[\\s:.-]*([0-9]+\\s*(?:months|days|years|year))"
+      ],
+      "required": true
+    },
+    {
+      "id": "mrp",
+      "label": "MRP (incl. of all taxes)",
+      "rule_ref": "Rule 6(1)(f)",
+      "description": "Maximum Retail Price inclusive of all taxes must be clearly stated.",
+      "patterns": [
+        "(?i)(M\\.?R\\.?P\\.?|Maximum\\s+Retail\\s+Price)[^\\n\\r]{0,35}?(₹|Rs\\.?|INR)?\\s*([0-9]+(?:\\.[0-9]{1,2})?)",
+        "(?i)\\b(Rs\\.?|INR|₹)\\s*\\d+(\\.\\d{1,2})?\\b",
+        "(?i)(M\\.?R\\.?P\\.?)[\\s:.-]*([0-9]+(?:\\.[0-9]{1,2})?)"
+      ],
+      "required": true
+    },
+    {
+      "id": "country_of_origin",
+      "label": "Country of Origin / Manufacture",
+      "rule_ref": "Rule 6(1)(j)",
+      "description": "Country of origin or manufacture must be clearly declared.",
+      "patterns": [
+        "(?i)(?:country\\s*of\\s*origin|made\\s+in|product\\s+of|origin|mfg\\s+in|manufactured\\s+in)[\\s:.-]*([A-Za-z\\s]{3,25})",
+        "(?i)\\b(india|made\\s+in\\s+india|product\\s+of\\s+india)\\b"
       ],
       "required": true
     },
@@ -71,6 +105,17 @@
         "(?i)(consumer|customer)\\s*(care|cell|grievance)"
       ],
       "required": true
+    },
+    {
+      "id": "unit_sale_price",
+      "label": "Unit Sale Price (USP)",
+      "rule_ref": "Rule 6(1)(n)",
+      "description": "Unit sale price per g, kg, ml, l, or unit for packaged commodities.",
+      "patterns": [
+        "(?i)(?:usp|unit\\s*sale\\s*price)[\\s:.-]*(?:Rs\\.?|INR|[₹<*#]|/-)?\\s*[0-9]+(?:\\.[0-9]{1,2})?\\s*/\\s*(?:100g|100ml|g|ml|kg|l|ltr|litre|unit|piece|pc|item)",
+        "(?i)(?:Rs\\.?|INR|[₹<*#])\\s*\\d+(?:\\.\\d{1,2})?\\s*/\\s*(?:100g|100ml|g|ml|kg|l|ltr|litre|unit|piece|pc|item)"
+      ],
+      "required": false
     },
     {
       "id": "fssai_license",

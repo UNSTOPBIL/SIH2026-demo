@@ -22,6 +22,7 @@ export interface RuleCard {
   required: boolean;
   passed?: boolean;
   status: "PASS" | "FAIL" | "WARN" | "WARNING" | "OPTIONAL";
+  actual_status?: string;
   snippet?: string | null;
   extracted_value?: string | null;
   pattern_used?: string;
@@ -39,6 +40,11 @@ export interface AuditSummary {
   required_failed: number;
   total_rules: number;
   total_passed: number;
+  passed_count?: number;
+  violation_count?: number;
+  review_count?: number;
+  not_applicable_count?: number;
+  score_percentage?: number;
 }
 
 export interface FontMeasurement {
@@ -86,11 +92,13 @@ export interface PastViolation {
 
 export interface RepeatOffenderStatus {
   entity_name: string;
+  company_name?: string;
   offense_count: number;
   is_repeat_offender: boolean;
   risk_tier: "CLEAN" | "STANDARD" | "CRITICAL";
   past_violations: PastViolation[];
   statutory_action: string;
+  legal_provision?: string;
 }
 
 export interface RemediationFix {
@@ -124,11 +132,17 @@ export interface ScanResponse {
   ocr_line_count: number;
   ocr_lines: string[];
   ocr_details: OCRDetail[];
+  ocr_tokens?: any[];
   is_compliant: boolean;
   score_percentage: number;
+  verdict_state?: string;
   summary: AuditSummary;
+  findings?: any[];
+  id?: string;
   cards: RuleCard[];
   font_compliance?: FontComplianceSummary;
+  placement_compliance?: any;
+  contrast_compliance?: any;
   evidence_vault?: EvidenceVault;
   repeat_offender?: RepeatOffenderStatus;
   remediation?: RemediationData;
@@ -143,3 +157,16 @@ export interface StatutoryRuleDefinition {
   fallback_regex?: string;
   legal_mandate: string;
 }
+
+export interface GalleryPackage {
+  id: string;
+  filename: string;
+  brand: string;
+  product_name: string;
+  category: string;
+  expected_verdict: string;
+  has_unprinted_box?: boolean;
+  is_stamped?: boolean;
+  image_url: string;
+}
+

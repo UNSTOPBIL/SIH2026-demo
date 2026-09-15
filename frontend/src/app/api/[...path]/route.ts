@@ -11,16 +11,14 @@ export async function GET(
   const targetUrl = `http://127.0.0.1:8000/api/${path.join("/")}${request.nextUrl.search}`;
   try {
     const res = await fetch(targetUrl, {
-      headers: {
-        Accept: "application/json",
-      },
       cache: "no-store",
     });
-    const text = await res.text();
-    return new NextResponse(text, {
+    const buffer = await res.arrayBuffer();
+    return new NextResponse(buffer, {
       status: res.status,
       headers: {
         "Content-Type": res.headers.get("Content-Type") || "application/json",
+        "Content-Disposition": res.headers.get("Content-Disposition") || "",
       },
     });
   } catch (e: any) {
@@ -40,14 +38,22 @@ export async function POST(
   try {
     const contentType = request.headers.get("content-type") || "";
     const body = await request.arrayBuffer();
-    const res = await fetch(targetUrl, {
+
+    const headers: Record<string, string> = {};
+    if (contentType) {
+      headers["Content-Type"] = contentType;
+    }
+
+    const fetchOptions: RequestInit = {
       method: "POST",
-      headers: {
-        "Content-Type": contentType,
-      },
-      body,
+      headers,
       cache: "no-store",
-    });
+    };
+    if (body && body.byteLength > 0) {
+      fetchOptions.body = body;
+    }
+
+    const res = await fetch(targetUrl, fetchOptions);
     const text = await res.text();
     return new NextResponse(text, {
       status: res.status,

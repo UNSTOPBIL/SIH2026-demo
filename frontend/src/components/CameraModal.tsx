@@ -18,6 +18,7 @@ import {
   Crosshair,
 } from "lucide-react";
 import { optimizeImage } from "../utils/imageOptimizer";
+import { FocusTrap } from "./FocusTrap";
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -111,6 +112,18 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             },
       };
 
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (!isCancelled) {
+          setCameraError(
+            typeof window !== "undefined" && window.isSecureContext === false
+              ? "Live browser video streaming requires HTTPS on mobile networks. Tap below to capture with phone camera or select from gallery!"
+              : "Camera device not accessible. Use 'Choose from Gallery' or 'Open Phone Camera' below."
+          );
+          setIsInitializing(false);
+        }
+        return;
+      }
+
       let activeStream: MediaStream | null = null;
       try {
         activeStream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
@@ -137,7 +150,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               setCameraError(
                 window.isSecureContext === false
                   ? "Mobile browsers require HTTPS for live video streaming. Use 'Phone Camera' below for instant native photo capture!"
-                  : "Could not access camera. Please verify permissions or click 'Direct Hardware Snap' below."
+                  : "Could not access camera. Please verify permissions or select a photo from gallery below."
               );
               setIsInitializing(false);
             }
@@ -369,13 +382,17 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="camera-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="glass-panel w-full max-w-xl rounded-2xl border border-white/10 overflow-hidden flex flex-col shadow-2xl bg-zinc-950/95">
-        {/* Header Bar */}
+      <FocusTrap onEscape={handleClose} className="w-full sm:max-w-xl flex justify-center">
+        <div className="glass-panel w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl border border-white/10 overflow-hidden flex flex-col shadow-2xl bg-zinc-950/95 max-h-[88vh] sm:max-h-[85vh] animate-sheet-up sm:animate-in sm:zoom-in-95">
+          {/* Mobile Sheet Grab Handle */}
+          <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-2.5 mb-1 sm:hidden shrink-0" />
+
+          {/* Header Bar */}
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5 bg-black/30">
           <div className="flex items-center gap-2">
             <Camera className="h-4 w-4 text-amber-400" />
@@ -454,32 +471,37 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             <div className="absolute inset-0 z-40 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center">
               <Loader2 className="h-8 w-8 text-amber-400 animate-spin" />
               <p className="text-xs font-mono text-amber-300 font-semibold">{optimizingMessage}</p>
-              <span className="text-[10px] font-mono text-gray-400">Protecting phone memory from crash...</span>
+              <span className="text-[11px] font-mono text-gray-400">Protecting phone memory from crash...</span>
             </div>
           )}
 
           {cameraError && !capturedImage ? (
             <div className="flex flex-col items-center text-center p-6 text-rose-400 max-w-sm">
-              <AlertCircle className="h-8 w-8 mb-2 text-amber-400" />
-              <p className="text-xs mb-3 text-gray-300">{cameraError}</p>
+              <div className="p-3 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-3">
+                <Camera className="h-7 w-7" />
+              </div>
+              <h4 className="text-sm font-semibold text-white mb-1">
+                Select or Capture Specimen Photo
+              </h4>
+              <p className="text-xs mb-4 text-gray-300 leading-relaxed">{cameraError}</p>
 
-              <div className="flex flex-col sm:flex-row items-center gap-2 mt-1">
+              <div className="flex flex-col w-full gap-2.5">
                 <button
                   type="button"
                   onClick={() => mobileFileInputRef.current?.click()}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-xs font-bold text-black hover:brightness-110 transition shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                  className="w-full flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2.5 text-xs font-bold text-black hover:brightness-110 transition shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95"
                 >
                   <Smartphone className="h-4 w-4" />
-                  <span>Open Phone Camera</span>
+                  <span>Take Photo with Phone Camera</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => galleryFileInputRef.current?.click()}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2 text-xs font-bold text-white hover:brightness-110 transition shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+                  className="w-full flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2.5 text-xs font-bold text-white hover:brightness-110 transition shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95"
                 >
                   <ImageIcon className="h-4 w-4" />
-                  <span>Choose from Gallery</span>
+                  <span>Choose Photo from Gallery</span>
                 </button>
 
                 {onDirectHardwareCapture && (
@@ -489,7 +511,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                       handleClose();
                       await onDirectHardwareCapture();
                     }}
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-white/10 border border-white/20 px-4 py-2 text-xs font-bold text-gray-200 hover:bg-white/20 transition"
+                    className="w-full flex items-center justify-center gap-2.5 rounded-xl bg-white/10 border border-white/20 px-4 py-2 text-xs font-bold text-gray-200 hover:bg-white/20 transition active:scale-95"
                   >
                     <Cpu className="h-4 w-4 text-blue-400" />
                     <span>Direct Hardware WebCam</span>
@@ -497,8 +519,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 )}
               </div>
 
-              <p className="text-[11px] text-gray-400 mt-3 max-w-xs leading-relaxed">
-                💡 <span className="text-amber-300 font-semibold">Memory-Safe Mode:</span> Photos taken or chosen are automatically optimized to avoid memory crashes.
+              <p className="text-[11px] text-gray-400 mt-4 max-w-xs leading-relaxed">
+                💡 <span className="text-amber-300 font-semibold">Memory-Safe Mode:</span> High-resolution mobile photos are client-downscaled to avoid memory crashes.
               </p>
             </div>
           ) : capturedImage ? (
@@ -509,7 +531,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 alt="Captured packaging frame"
                 className="w-full h-full object-contain"
               />
-              <div className="absolute top-3 left-3 rounded-full bg-black/80 px-2.5 py-1 text-[10px] font-mono text-amber-300 border border-amber-500/30">
+              <div className="absolute top-3 left-3 rounded-full bg-black/80 px-2.5 py-1 text-[11px] font-mono text-amber-300 border border-amber-500/30">
                 Snapshot Frozen (High-Res Ready)
               </div>
             </div>
@@ -533,11 +555,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <div className="h-4 w-4 border-b-2 border-l-2 border-amber-400 absolute bottom-0 left-0" />
                 <div className="h-4 w-4 border-b-2 border-r-2 border-amber-400 absolute bottom-0 right-0" />
 
-                <div className="rounded bg-black/70 px-2 py-0.5 text-[10px] font-mono text-amber-400 tracking-wider uppercase border border-amber-400/20">
+                <div className="rounded bg-black/70 px-2 py-0.5 text-[11px] font-mono text-amber-400 tracking-wider uppercase border border-amber-400/20">
                   Target: Commodity Declaration Panel
                 </div>
 
-                <div className="flex items-center gap-2 text-[10px] font-mono text-gray-300 bg-black/70 px-2 py-0.5 rounded border border-white/10">
+                <div className="flex items-center gap-2 text-[11px] font-mono text-gray-300 bg-black/70 px-2 py-0.5 rounded border border-white/10">
                   <Crosshair className="h-3 w-3 text-amber-400" />
                   <span>Tap screen to lock focus</span>
                 </div>
@@ -550,59 +572,57 @@ export const CameraModal: React.FC<CameraModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="border-t border-white/10 px-5 py-3.5 bg-black/50 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="border-t border-white/10 px-5 py-3.5 pb-6 sm:pb-3.5 bg-black/50 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-xl px-3.5 py-1.5 text-xs font-semibold text-gray-400 hover:text-white transition"
+              className="rounded-xl px-3.5 py-2 text-xs font-semibold text-gray-400 hover:text-white transition active:scale-95"
             >
               Cancel
             </button>
 
-            {/* Direct Hardware WebCam Capture Button */}
-            {onDirectHardwareCapture && !capturedImage && (
-              <button
-                type="button"
-                onClick={async () => {
-                  handleClose();
-                  await onDirectHardwareCapture();
-                }}
-                disabled={isHardwareCapturing}
-                className="hidden sm:flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-mono text-blue-300 hover:bg-blue-500/25 transition"
-                title="Capture high-definition uncompressed frame directly from USB webcam hardware"
-              >
-                <Cpu className="h-3.5 w-3.5" />
-                <span>Direct WebCam</span>
-              </button>
-            )}
+            {/* When stream is active (no error), show quick alternative sources */}
+            {!cameraError && !capturedImage && (
+              <>
+                {onDirectHardwareCapture && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      handleClose();
+                      await onDirectHardwareCapture();
+                    }}
+                    disabled={isHardwareCapturing}
+                    className="hidden sm:flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-mono text-blue-300 hover:bg-blue-500/25 transition"
+                    title="Capture uncompressed frame directly from USB webcam hardware"
+                  >
+                    <Cpu className="h-3.5 w-3.5" />
+                    <span>Direct WebCam</span>
+                  </button>
+                )}
 
-            {/* Mobile Native Camera Snap Button */}
-            {!capturedImage && (
-              <button
-                type="button"
-                onClick={() => mobileFileInputRef.current?.click()}
-                disabled={isOptimizing}
-                className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-mono text-emerald-300 hover:bg-emerald-500/25 transition"
-                title="Open native high-res mobile camera with auto-memory safety"
-              >
-                <Smartphone className="h-3.5 w-3.5" />
-                <span>Phone Camera</span>
-              </button>
-            )}
+                <button
+                  type="button"
+                  onClick={() => mobileFileInputRef.current?.click()}
+                  disabled={isOptimizing}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-mono text-emerald-300 hover:bg-emerald-500/25 transition"
+                  title="Open native mobile camera"
+                >
+                  <Smartphone className="h-3.5 w-3.5" />
+                  <span>Phone Camera</span>
+                </button>
 
-            {/* Choose from Gallery Button */}
-            {!capturedImage && (
-              <button
-                type="button"
-                onClick={() => galleryFileInputRef.current?.click()}
-                disabled={isOptimizing}
-                className="flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-mono text-blue-300 hover:bg-blue-500/25 transition"
-                title="Choose from photo gallery with auto-memory safety"
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-                <span>Gallery</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => galleryFileInputRef.current?.click()}
+                  disabled={isOptimizing}
+                  className="flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/15 px-3 py-1.5 text-xs font-mono text-blue-300 hover:bg-blue-500/25 transition"
+                  title="Choose from photo gallery"
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Gallery</span>
+                </button>
+              </>
             )}
           </div>
 
@@ -612,7 +632,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <button
                   type="button"
                   onClick={handleRetake}
-                  className="flex items-center gap-1.5 rounded-xl border border-white/15 px-3.5 py-1.5 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition"
+                  className="flex items-center gap-1.5 rounded-xl border border-white/15 px-3.5 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/10 transition active:scale-95"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>Retake</span>
@@ -620,23 +640,23 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 <button
                   type="button"
                   onClick={handleConfirmAudit}
-                  className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-1.5 text-xs font-bold text-black shadow-[0_0_20px_rgba(245,158,11,0.3)] transition hover:brightness-110 active:scale-95"
+                  className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2 text-xs font-bold text-black shadow-[0_0_20px_rgba(245,158,11,0.3)] transition hover:brightness-110 active:scale-95"
                 >
                   <Check className="h-4 w-4" />
                   <span>Audit Specimen</span>
                 </button>
               </>
-            ) : (
+            ) : !cameraError ? (
               <button
                 type="button"
                 onClick={handleSnap}
-                disabled={!!cameraError || isInitializing || isOptimizing}
+                disabled={isInitializing || isOptimizing}
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2 text-xs font-bold text-black shadow-[0_0_20px_rgba(245,158,11,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-40"
               >
                 <Camera className="h-4 w-4" />
                 <span>Snap Photo</span>
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -659,6 +679,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           className="hidden"
         />
       </div>
+      </FocusTrap>
     </div>
   );
 };

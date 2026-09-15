@@ -47,5 +47,8 @@ phone_current_screen.png
 
 # Internal reference materials & competitor pitch documents
 documents/new shit/
-documents/references/
-
+# Edge test profiles & scratch
+.edge-*/
+scratch/
+*.db-shm
+*.db-wal

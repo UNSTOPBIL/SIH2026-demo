@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import { Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Scan, Copy, Check, X, Sparkles } from "lucide-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Eye, EyeOff, ZoomIn, ZoomOut, Scan, Copy, Check, X, Sparkles, Move } from "lucide-react";
 import { ScanResponse, OCRDetail } from "../types/scanner";
 
 interface SpecimenViewerProps {
@@ -28,17 +28,34 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
   const [hoveredBox, setHoveredBox] = useState<OCRDetail | null>(null);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
-  const [imgNaturalSize, setImgNaturalSize] = useState({ width: 1, height: 1 });
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Natural dimensions initialized with fallback from scan.dimensions
+  const [imgNaturalSize, setImgNaturalSize] = useState(() => ({
+    width: scan?.dimensions?.width || 800,
+    height: scan?.dimensions?.height || 600,
+  }));
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scan?.dimensions) {
+    if (scan?.dimensions?.width && scan?.dimensions?.height) {
       setImgNaturalSize({
-        width: scan.dimensions.width || 800,
-        height: scan.dimensions.height || 600,
+        width: scan.dimensions.width,
+        height: scan.dimensions.height,
       });
     }
   }, [scan]);
+
+  // Reset pan whenever zoom returns to 1.0x or below
+  useEffect(() => {
+    if (zoomLevel <= 1.0) {
+      setPanOffset({ x: 0, y: 0 });
+    }
+  }, [zoomLevel]);
 
   // Dynamically flip tooltip to top if hovered OCR line is in lower half of image
   const isTooltipOnTop = (() => {
@@ -48,12 +65,16 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
   })();
 
   const isBoxMatched = (detail: OCRDetail) => {
-    if (!activeRuleQuery) return false;
-    return detail.text.toLowerCase().includes(activeRuleQuery.toLowerCase());
+    if (!activeRuleQuery || !detail.text) return false;
+    const q = activeRuleQuery.toLowerCase().trim();
+    const t = detail.text.toLowerCase().trim();
+    if (t.includes(q) || q.includes(t)) return true;
+    const qTokens = q.split(/[\s,.:"'-]+/).filter((w) => w.length >= 3);
+    return qTokens.some((tok) => t.includes(tok));
   };
 
   const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.min(2.0, +(prev + 0.25).toFixed(2)));
+    setZoomLevel((prev) => Math.min(2.5, +(prev + 0.25).toFixed(2)));
   };
 
   const handleZoomOut = () => {
@@ -62,6 +83,53 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
 
   const handleResetZoom = () => {
     setZoomLevel(1.0);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  // Pan / Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomLevel <= 1.0) return;
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    panStartRef.current = { ...panOffset };
+  };
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDragging || zoomLevel <= 1.0) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      // Clamp panning bounds based on zoom ratio
+      const maxPan = (zoomLevel - 1.0) * 260;
+      setPanOffset({
+        x: Math.max(-maxPan, Math.min(maxPan, panStartRef.current.x + dx)),
+        y: Math.max(-maxPan, Math.min(maxPan, panStartRef.current.y + dy)),
+      });
+    },
+    [isDragging, zoomLevel]
+  );
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Mobile Touch Pan Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (zoomLevel <= 1.0 || e.touches.length !== 1) return;
+    setIsDragging(true);
+    dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    panStartRef.current = { ...panOffset };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || zoomLevel <= 1.0 || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - dragStartRef.current.x;
+    const dy = e.touches[0].clientY - dragStartRef.current.y;
+    const maxPan = (zoomLevel - 1.0) * 260;
+    setPanOffset({
+      x: Math.max(-maxPan, Math.min(maxPan, panStartRef.current.x + dx)),
+      y: Math.max(-maxPan, Math.min(maxPan, panStartRef.current.y + dy)),
+    });
   };
 
   const handleCopyText = (text: string) => {
@@ -73,19 +141,19 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
   return (
     <div className="glass-panel flex flex-col rounded-2xl overflow-hidden h-full">
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-white/[0.08] px-4 sm:px-5 py-3.5 bg-black/20">
+      <div className="flex items-center justify-between border-b border-white/[0.08] dark:border-white/[0.08] light:border-slate-200/90 px-4 sm:px-5 py-3.5 bg-black/20 dark:bg-black/20 light:bg-white/80">
         <div className="flex items-center gap-2">
-          <Scan className="h-4 w-4 text-amber-400" />
-          <h2 className="text-xs font-mono font-bold tracking-wider uppercase text-gray-200">
+          <Scan className="h-4 w-4 text-amber-400 light:text-amber-600" />
+          <h2 className="text-xs font-mono font-bold tracking-wider uppercase text-gray-200 dark:text-gray-200 light:text-slate-900">
             Optical Specimen Canvas
           </h2>
           {isRemediationActive ? (
-            <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[11px] font-mono text-emerald-300 font-bold">
-              <Sparkles className="h-3 w-3 text-emerald-400" />
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/20 border border-emerald-500/40 light:bg-emerald-100 light:border-emerald-300 px-2 py-0.5 text-[11px] font-mono text-emerald-300 light:text-emerald-800 font-bold">
+              <Sparkles className="h-3 w-3 text-emerald-400 light:text-emerald-600" />
               AI REMEDIATED ARTWORK
             </span>
           ) : displayTitle ? (
-            <span className="hidden sm:inline-block max-w-[200px] truncate rounded bg-white/5 px-2 py-0.5 text-[11px] text-gray-400 font-sans">
+            <span className="hidden sm:inline-block max-w-[200px] truncate rounded-md bg-white/5 dark:bg-white/5 light:bg-slate-100 light:border light:border-slate-200/80 px-2 py-0.5 text-[11px] text-gray-400 dark:text-gray-400 light:text-slate-600 font-sans font-medium">
               {displayTitle}
             </span>
           ) : null}
@@ -93,14 +161,21 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
 
         {/* Action Controls: Zoom & Bounding Box Toggles */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Pan Mode Indicator (visible when zoomed) */}
+          {zoomLevel > 1.0 && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-300 light:bg-amber-100 light:text-amber-800 border border-amber-500/30 light:border-amber-300">
+              <Move className="h-3 w-3" /> Drag to Pan
+            </span>
+          )}
+
           {/* Zoom Controls */}
-          <div className="flex items-center rounded-lg border border-white/10 bg-black/40 p-0.5">
+          <div className="flex items-center rounded-lg border border-white/10 dark:border-white/10 light:border-slate-200/90 bg-black/40 dark:bg-black/40 light:bg-white light:shadow-xs p-0.5">
             <button
               type="button"
               onClick={handleZoomOut}
               disabled={zoomLevel <= 0.75}
               aria-label="Zoom out specimen"
-              className="rounded p-1 text-gray-400 hover:text-white hover:bg-white/10 transition disabled:opacity-30"
+              className="rounded p-1 text-gray-400 hover:text-white dark:hover:text-white light:hover:text-slate-900 hover:bg-white/10 dark:hover:bg-white/10 light:hover:bg-slate-50 transition active:scale-90 disabled:opacity-30"
             >
               <ZoomOut className="h-3.5 w-3.5" />
             </button>
@@ -108,7 +183,7 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
               type="button"
               onClick={handleResetZoom}
               aria-label="Reset zoom to 100%"
-              className="px-1.5 text-[11px] font-mono text-gray-300 hover:text-amber-400 transition"
+              className="px-1.5 text-[11px] font-mono text-gray-300 dark:text-gray-300 light:text-slate-700 hover:text-amber-400 light:hover:text-amber-600 transition active:scale-95 font-semibold"
               title="Click to reset zoom"
             >
               {(zoomLevel * 100).toFixed(0)}%
@@ -116,9 +191,9 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
             <button
               type="button"
               onClick={handleZoomIn}
-              disabled={zoomLevel >= 2.0}
+              disabled={zoomLevel >= 2.5}
               aria-label="Zoom in specimen"
-              className="rounded p-1 text-gray-400 hover:text-white hover:bg-white/10 transition disabled:opacity-30"
+              className="rounded p-1 text-gray-400 hover:text-white dark:hover:text-white light:hover:text-slate-900 hover:bg-white/10 dark:hover:bg-white/10 light:hover:bg-slate-50 transition active:scale-90 disabled:opacity-30"
             >
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
@@ -131,12 +206,12 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
               onClick={() => setShowBoxes(!showBoxes)}
               className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-mono transition ${
                 showBoxes
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                  : "bg-white/5 text-gray-400 hover:text-white"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 light:bg-amber-100 light:text-amber-900 light:border-amber-300 font-semibold"
+                  : "bg-white/5 dark:bg-white/5 light:bg-white light:border light:border-slate-200/90 text-gray-400 hover:text-white light:text-slate-600 light:hover:text-slate-900"
               }`}
               title="Toggle OCR Detection Bounding Boxes"
             >
-              {showBoxes ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              {showBoxes ? <Eye className="h-3 w-3 text-amber-400 light:text-amber-600" /> : <EyeOff className="h-3 w-3" />}
               <span className="hidden sm:inline">Boxes</span>
             </button>
           )}
@@ -146,14 +221,23 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
       {/* Main Specimen Display Area */}
       <div
         ref={containerRef}
-        className="relative flex-1 flex items-center justify-center p-4 sm:p-6 bg-black/40 min-h-[380px] sm:min-h-[460px] overflow-hidden select-none"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleMouseUp}
+        className={`relative flex-1 flex items-center justify-center p-4 sm:p-6 bg-black/40 dark:bg-black/40 light:bg-slate-50/60 min-h-[380px] sm:min-h-[460px] overflow-hidden select-none ${
+          zoomLevel > 1.0 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : ""
+        }`}
       >
         {displayImage ? (
           <div
             key={displayImage}
-            className="relative inline-block max-w-full rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-zinc-950 transition-transform duration-200 leading-none"
+            className="relative inline-block max-w-full rounded-xl overflow-hidden border border-white/10 dark:border-white/10 light:border-slate-200/90 shadow-2xl bg-zinc-950 light:bg-slate-100 transition-transform duration-150 leading-none animate-in fade-in duration-300"
             style={{
-              transform: `scale(${zoomLevel})`,
+              transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
               transformOrigin: "center center",
             }}
           >
@@ -187,7 +271,8 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
                 <div
                   className="absolute inset-0 animate-grid-pulse opacity-30"
                   style={{
-                    backgroundImage: "linear-gradient(to right, rgba(245,158,11,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(245,158,11,0.2) 1px, transparent 1px)",
+                    backgroundImage:
+                      "linear-gradient(to right, rgba(245,158,11,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(245,158,11,0.2) 1px, transparent 1px)",
                     backgroundSize: "20px 20px",
                   }}
                 />
@@ -236,13 +321,14 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
                 })}
               </svg>
             )}
-
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center text-center p-8 text-gray-500">
-            <Scan className="h-12 w-12 stroke-[1.2] text-gray-600 mb-3 animate-pulse" />
-            <p className="text-sm font-medium text-gray-400">No packaging specimen loaded</p>
-            <p className="text-xs text-gray-600 mt-1 max-w-xs">
+          <div className="flex flex-col items-center justify-center text-center p-8 text-gray-500 dark:text-gray-500 light:text-slate-400">
+            <Scan className="h-12 w-12 stroke-[1.2] text-gray-600 dark:text-gray-600 light:text-slate-300 mb-3 animate-pulse" />
+            <p className="text-sm font-medium text-gray-400 dark:text-gray-400 light:text-slate-700">
+              No packaging specimen loaded
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-600 light:text-slate-500 mt-1 max-w-xs">
               Select a demonstration preset or upload a commodity packaging label to begin the Rule 6 audit.
             </p>
           </div>
@@ -253,20 +339,20 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
           <div
             className={`absolute ${
               isTooltipOnTop ? "top-4" : "bottom-4"
-            } left-4 right-4 sm:left-8 sm:right-8 max-w-xl mx-auto z-40 pointer-events-auto rounded-xl bg-gray-950/95 border border-amber-500/40 p-3.5 backdrop-blur-xl shadow-[0_10px_35px_rgba(0,0,0,0.85)] text-left animate-tooltip`}
+            } left-4 right-4 sm:left-8 sm:right-8 max-w-xl mx-auto z-40 pointer-events-auto rounded-xl bg-gray-950/95 dark:bg-gray-950/95 light:bg-white/95 border border-amber-500/40 p-3.5 backdrop-blur-xl shadow-[0_10px_35px_rgba(0,0,0,0.85)] text-left animate-tooltip`}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-amber-400 dark:text-amber-400 light:text-amber-700 font-bold">
                   OCR Text Line
                 </span>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[11px] font-mono font-semibold ${
                     hoveredBox.confidence >= 0.7
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 light:bg-emerald-100 light:text-emerald-800"
                       : hoveredBox.confidence >= 0.45
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 light:bg-amber-100 light:text-amber-800"
+                      : "bg-rose-500/20 text-rose-300 border border-rose-500/30 light:bg-rose-100 light:text-rose-800"
                   }`}
                 >
                   {(hoveredBox.confidence * 100).toFixed(0)}% Conf
@@ -277,7 +363,7 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
                 <button
                   type="button"
                   onClick={() => handleCopyText(hoveredBox.text)}
-                  className="flex items-center gap-1 rounded bg-white/10 hover:bg-white/20 px-2 py-0.5 text-[11px] text-gray-200 transition"
+                  className="flex items-center gap-1 rounded bg-white/10 dark:bg-white/10 light:bg-slate-200 hover:bg-white/20 px-2 py-0.5 text-[11px] text-gray-200 dark:text-gray-200 light:text-slate-800 transition active:scale-95"
                   title="Copy extracted line to clipboard"
                 >
                   {copiedSnippet ? (
@@ -291,23 +377,23 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
                   type="button"
                   onClick={() => setHoveredBox(null)}
                   aria-label="Dismiss inspection tooltip"
-                  className="rounded p-1 text-gray-400 hover:text-white hover:bg-white/10 transition"
+                  className="rounded p-1 text-gray-400 hover:text-white dark:hover:text-white light:hover:text-slate-900 transition"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
 
-            <div className="mt-2 h-1 w-full bg-gray-800 rounded-full overflow-hidden">
+            <div className="mt-2 h-1 w-full bg-gray-800 dark:bg-gray-800 light:bg-slate-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-300"
                 style={{ width: `${Math.min(100, Math.max(10, hoveredBox.confidence * 100))}%` }}
               />
             </div>
 
-            <div className="mt-2 rounded-lg bg-black/60 p-2.5 border border-white/5 max-h-24 overflow-y-auto">
-              <p className="font-mono text-xs text-gray-100 leading-relaxed break-words select-text">
-                "{hoveredBox.text}"
+            <div className="mt-2 rounded-lg bg-black/60 dark:bg-black/60 light:bg-slate-50 p-2.5 border border-white/5 dark:border-white/5 light:border-slate-200 max-h-24 overflow-y-auto">
+              <p className="font-mono text-xs text-gray-100 dark:text-gray-100 light:text-slate-900 leading-relaxed break-words select-text">
+                &quot;{hoveredBox.text}&quot;
               </p>
             </div>
           </div>
@@ -315,20 +401,20 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
       </div>
 
       {/* Footer Specimen Telemetry Ribbon */}
-      <div className="border-t border-white/[0.08] px-5 py-3 bg-black/20 flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-gray-400">
+      <div className="border-t border-white/[0.08] dark:border-white/[0.08] light:border-slate-200/90 px-5 py-3 bg-black/20 dark:bg-black/20 light:bg-white/80 flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-gray-400 dark:text-gray-400 light:text-slate-500">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
             Resolution:{" "}
-            <span className="text-gray-200">
+            <span className="text-gray-200 dark:text-gray-200 light:text-slate-800 font-semibold">
               {scan?.dimensions?.width ? `${scan.dimensions.width}x${scan.dimensions.height} px` : "N/A"}
             </span>
           </span>
           {scan?.font_compliance && (
-            <span className="flex items-center gap-1.5 text-cyan-400">
+            <span className="flex items-center gap-1.5 text-cyan-400 dark:text-cyan-400 light:text-cyan-700">
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
               Scale:{" "}
-              <span className="text-cyan-200">
+              <span className="text-cyan-200 dark:text-cyan-200 light:text-cyan-800 font-semibold">
                 {scan.font_compliance.package_width_mm}mm ({scan.font_compliance.scale_px_to_mm} mm/px)
               </span>
             </span>
@@ -336,8 +422,8 @@ export const SpecimenViewer: React.FC<SpecimenViewerProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-gray-500">Engine:</span>
-          <span className="rounded bg-white/5 px-2 py-0.5 text-[11px] text-emerald-400 font-semibold">
+          <span className="text-[11px] text-gray-500 light:text-slate-500">Engine:</span>
+          <span className="rounded-md bg-white/5 dark:bg-white/5 light:bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-400 dark:text-emerald-400 light:text-emerald-800 font-semibold border border-emerald-500/20 light:border-emerald-200">
             PP-OCRv4 + Sched. 2 Sizing
           </span>
         </div>
