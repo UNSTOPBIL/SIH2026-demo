@@ -249,7 +249,7 @@ export default function HistoryPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-6 space-y-6 max-w-full overflow-x-hidden">
         {/* Navigation Tabs */}
         <div className="flex border-b border-white/10 light:border-slate-200">
           <button
@@ -337,7 +337,7 @@ export default function HistoryPage() {
             </div>
 
             {/* Inspections Table */}
-            <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white overflow-hidden shadow-sm">
+            <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white overflow-hidden shadow-sm max-w-full">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-white/10 light:border-slate-200 bg-white/[0.02] light:bg-slate-50 text-gray-400 light:text-slate-500">
@@ -559,7 +559,7 @@ export default function HistoryPage() {
             </div>
 
             {/* Product Catalog Table */}
-            <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white overflow-hidden shadow-sm">
+            <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white overflow-hidden shadow-sm max-w-full">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-white/10 light:border-slate-200 bg-white/[0.02] light:bg-slate-50 text-gray-400 light:text-slate-500">

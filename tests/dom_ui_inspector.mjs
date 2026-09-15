@@ -78,6 +78,19 @@ async function checkDomGlitches(pageWs, pageName) {
         return;
       }
       if (rect.right > docWidth + 2) {
+        // Check if contained inside an element with overflow-x auto, scroll, or hidden
+        let parent = el.parentElement;
+        let insideScrollContainer = false;
+        while (parent && parent !== document.body) {
+          const pStyle = window.getComputedStyle(parent);
+          if (pStyle.overflowX === 'auto' || pStyle.overflowX === 'scroll' || pStyle.overflowX === 'hidden') {
+            insideScrollContainer = true;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        if (insideScrollContainer) return;
+
         overflowingElements.push({
           tag: el.tagName,
           className: (el.className || '').toString().slice(0, 80),
@@ -239,15 +252,81 @@ async function main() {
     console.log("Home Scanned (Light) DOM check:", JSON.stringify(domCheck));
     await capture(pageWs, "06_home_scanned_desktop_light.png");
 
+    // Test Floating Specimen Canvas during scroll
+    console.log("Testing Floating Specimen Canvas sticky behavior...");
+    const initialCanvasMetrics = await evaluate(pageWs, `(() => {
+      const heading = Array.from(document.querySelectorAll('h2')).find(h => h.textContent && h.textContent.includes('Optical Specimen Canvas'));
+      const canvas = heading ? heading.closest('.glass-panel') : null;
+      const rect = canvas ? canvas.getBoundingClientRect() : null;
+      return {
+        top: Math.round(rect?.top || 0),
+        scrollY: Math.round(window.scrollY || document.documentElement.scrollTop || 0)
+      };
+    })()`);
+    console.log("Initial Canvas Pos (scrollY=0):", JSON.stringify(initialCanvasMetrics));
+
+    await evaluate(pageWs, `window.scrollBy(0, 500)`);
+    await sleep(600);
+
+    const scrolledCanvasMetrics = await evaluate(pageWs, `(() => {
+      const heading = Array.from(document.querySelectorAll('h2')).find(h => h.textContent && h.textContent.includes('Optical Specimen Canvas'));
+      const canvas = heading ? heading.closest('.glass-panel') : null;
+      const rect = canvas ? canvas.getBoundingClientRect() : null;
+      const ingestion = document.querySelector('input[type="range"]')?.closest('.glass-panel');
+      const ingRect = ingestion ? ingestion.getBoundingClientRect() : null;
+      const currentScroll = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+      return {
+        canvasTop: Math.round(rect?.top || 0),
+        canvasHeight: Math.round(rect?.height || 0),
+        ingestionBottom: Math.round(ingRect?.bottom || 0),
+        scrollY: currentScroll,
+        isDockedNearTop: (rect?.top >= 70 && rect?.top <= 85)
+      };
+    })()`);
+    console.log("Scrolled Canvas Pos (scrollY=500):", JSON.stringify(scrolledCanvasMetrics));
+    await capture(pageWs, "06b_home_scrolled_floating_canvas.png");
+
+    await evaluate(pageWs, `window.scrollBy(0, 500)`);
+    await sleep(600);
+    const deepScrolledMetrics = await evaluate(pageWs, `(() => {
+      const heading = Array.from(document.querySelectorAll('h2')).find(h => h.textContent && h.textContent.includes('Optical Specimen Canvas'));
+      const canvas = heading ? heading.closest('.glass-panel') : null;
+      const rect = canvas ? canvas.getBoundingClientRect() : null;
+      const currentScroll = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+      return {
+        canvasTop: Math.round(rect?.top || 0),
+        scrollY: currentScroll,
+        isDockedNearTop: (rect?.top >= 70 && rect?.top <= 85)
+      };
+    })()`);
+    console.log("Deep Scrolled Canvas Pos (scrollY=1000):", JSON.stringify(deepScrolledMetrics));
+    await capture(pageWs, "06c_home_deep_scrolled_floating_canvas.png");
+
+    await evaluate(pageWs, `window.scrollTo(0, 0)`);
+    await sleep(400);
+
+    // Laptop Resolution (1024x768)
+    await setViewport(pageWs, 1024, 768, false);
+    domCheck = await checkDomGlitches(pageWs, "home-laptop-1024");
+    console.log("Home (Laptop 1024x768) DOM check:", JSON.stringify(domCheck));
+    await capture(pageWs, "06d_home_laptop_1024_light.png");
+
+    await setViewport(pageWs, 1280, 850, false);
     await setTheme(pageWs, "dark");
     await capture(pageWs, "07_home_scanned_desktop_dark.png");
 
-    // Mobile Scanned State
+    // Mobile Scanned State (390x844)
     await setViewport(pageWs, 390, 844, true);
     await setTheme(pageWs, "light");
-    domCheck = await checkDomGlitches(pageWs, "home-scanned-mobile");
-    console.log("Home Scanned (Mobile Light) DOM check:", JSON.stringify(domCheck));
+    domCheck = await checkDomGlitches(pageWs, "home-scanned-mobile-390");
+    console.log("Home Scanned (Mobile 390 Light) DOM check:", JSON.stringify(domCheck));
     await capture(pageWs, "08_home_scanned_mobile_light.png");
+
+    // Small Mobile Scanned State (360x740)
+    await setViewport(pageWs, 360, 740, true);
+    domCheck = await checkDomGlitches(pageWs, "home-scanned-small-mobile-360");
+    console.log("Home Scanned (Small Mobile 360 Light) DOM check:", JSON.stringify(domCheck));
+    await capture(pageWs, "08b_home_scanned_small_mobile_360.png");
 
     // Test TestGalleryModal
     console.log("Testing Test Gallery Modal...");

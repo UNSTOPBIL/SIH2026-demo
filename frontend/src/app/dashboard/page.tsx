@@ -520,7 +520,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Live Field Inspections Feed & Form I Memos */}
-        <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-white/10 light:border-slate-200/90 bg-white/[0.03] light:bg-white p-4 sm:p-6 shadow-sm max-w-full overflow-hidden">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-sm font-semibold text-white light:text-slate-900 flex items-center gap-2">

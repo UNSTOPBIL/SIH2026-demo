@@ -373,17 +373,19 @@ export default function Home() {
         )}
 
         {/* Split Screen Layout: Left Specimen Canvas, Right Statutory Findings */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Specimen Viewer (5 cols on lg) */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
-            <SpecimenViewer
-              scan={currentScan}
-              imageUri={effectiveDisplayImage}
-              imageTitle={activeImageTitle}
-              isLoading={isLoading}
-              activeRuleQuery={activeRuleQuery}
-              isRemediationActive={isRemediationActive}
-            />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          {/* Left Column: Specimen Viewer (5 cols on lg) with responsive floating sticky dock */}
+          <div className="lg:col-span-5 relative h-full">
+            <div className="lg:sticky lg:top-[76px] lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto flex flex-col gap-4 z-20 transition-all">
+              <SpecimenViewer
+                scan={currentScan}
+                imageUri={effectiveDisplayImage}
+                imageTitle={activeImageTitle}
+                isLoading={isLoading}
+                activeRuleQuery={activeRuleQuery}
+                isRemediationActive={isRemediationActive}
+              />
+            </div>
           </div>
 
           {/* Right Column: Statutory Declarations Audit (7 cols on lg) */}
