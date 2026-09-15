@@ -52,3 +52,5 @@ documents/new shit/
 scratch/
 *.db-shm
 *.db-wal
+.vercel/
+frontend/.vercel/

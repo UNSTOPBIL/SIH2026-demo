@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes timeout to prevent ECONNRESET
+export const maxDuration = 60; // 60 seconds (Vercel max execution time)
+
+const BACKEND_BASE = (
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await context.params;
-  const targetUrl = `http://127.0.0.1:8000/api/${path.join("/")}${request.nextUrl.search}`;
+  const targetUrl = `${BACKEND_BASE}/api/${path.join("/")}${request.nextUrl.search}`;
   try {
     const res = await fetch(targetUrl, {
       cache: "no-store",
@@ -34,7 +40,7 @@ export async function POST(
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await context.params;
-  const targetUrl = `http://127.0.0.1:8000/api/${path.join("/")}${request.nextUrl.search}`;
+  const targetUrl = `${BACKEND_BASE}/api/${path.join("/")}${request.nextUrl.search}`;
   try {
     const contentType = request.headers.get("content-type") || "";
     const body = await request.arrayBuffer();

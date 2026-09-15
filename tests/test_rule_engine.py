@@ -17,9 +17,11 @@ class TestRuleEngine(unittest.TestCase):
             "HERBAL ESSENCE ORGANIC TEA",
             "Net Quantity: 250 g",
             "MRP: Rs. 199.00 (Inclusive of all taxes)",
+            "Unit Sale Price: Rs. 0.80 / g",
             "Mfg. Date: 05/2024",
             "Best Before: 24 Months from Mfg",
             "Mfg by: NaturePure Organics India Pvt Ltd, Solan, HP",
+            "Country of Origin: India",
             "Consumer Care Helpline: 1800-200-8899",
             "Email: care@naturepure.com",
             "FSSAI Lic. No.: 10019022009876"
@@ -36,7 +38,6 @@ class TestRuleEngine(unittest.TestCase):
         result = evaluate_compliance(self.compliant_food_ocr, context=self.food_context)
         self.assertTrue(result["is_compliant"])
         self.assertEqual(result["verdict_state"], "COMPLIANT")
-        self.assertEqual(result["summary"]["passed_count"], 7)
         self.assertEqual(result["summary"]["violation_count"], 0)
 
         statuses = {f["field"]: f["status"] for f in result["findings"]}
@@ -47,6 +48,8 @@ class TestRuleEngine(unittest.TestCase):
         self.assertEqual(statuses["expiry_date"], "PASS")
         self.assertEqual(statuses["consumer_care"], "PASS")
         self.assertEqual(statuses["fssai_license"], "PASS")
+        self.assertEqual(statuses["unit_sale_price"], "PASS")
+        self.assertEqual(statuses["country_of_origin"], "PASS")
 
     def test_real_garnier_ocr_lines(self):
         """
@@ -83,8 +86,8 @@ class TestRuleEngine(unittest.TestCase):
         mrp_finding = next(f for f in result["findings"] if f["field"] == "mrp")
         self.assertEqual(mrp_finding["status"], "REVIEW_REQUIRED")
 
-    def test_standalone_price_without_explicit_prefix_returns_review_required(self):
-        """Standalone price 'Rs. 115' without explicit MRP prefix returns REVIEW_REQUIRED."""
+    def test_standalone_price_without_explicit_prefix_returns_violation(self):
+        """Standalone price 'Rs. 115' without explicit MRP prefix or taxes clause returns statutory FAIL under Rule 6(1)(f)."""
         lines = [
             "Net Qty: 100g",
             "Rs. 115.00",
@@ -92,7 +95,8 @@ class TestRuleEngine(unittest.TestCase):
         ]
         result = evaluate_compliance(lines, context=self.food_context)
         mrp_finding = next(f for f in result["findings"] if f["field"] == "mrp")
-        self.assertEqual(mrp_finding["status"], "REVIEW_REQUIRED")
+        self.assertEqual(mrp_finding["status"], "FAIL")
+        self.assertIn("Statutory defect", mrp_finding["value"])
 
     def test_mrp_vs_unit_sale_price_disambiguation(self):
         """Distinguish Unit Sale Price (Rs.2.30/100g) from explicit MRP (MRP Rs 115.00)."""

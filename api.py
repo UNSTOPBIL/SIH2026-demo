@@ -115,6 +115,30 @@ def on_startup():
         logger.error("Error initializing SQLite repository: %s", e)
 
 
+@app.get("/")
+def root():
+    """Root health and discovery endpoint for Hugging Face Space."""
+    return {
+        "service": "Legal Metrology Rule 6 Compliance API",
+        "status": "operational",
+        "docs": "/docs",
+        "version": "2.0.0",
+        "endpoints": [
+            "/api/health",
+            "/api/scan",
+            "/api/scan-base64",
+            "/api/presets/compliant",
+            "/api/presets/violation",
+            "/api/test-gallery",
+            "/api/scans",
+            "/api/products",
+            "/api/enforcement/analytics",
+            "/api/reports/inspection/{scan_id}",
+            "/api/exports/scans.csv"
+        ]
+    }
+
+
 @app.get("/api/health")
 def health_check():
     """Returns the operational status of the OCR and rule matching engines."""
